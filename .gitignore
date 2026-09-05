@@ -8,3 +8,6 @@ obj/
 ## Rider / VS Code
 .idea/
 .vscode/
+
+## Sample FOM input (large, not part of the source)
+RPR_FOM_v2.0_1516-2010.xml
