@@ -37,15 +37,18 @@ public static partial class IcdExporter
     }
 
     /// <summary>
-    /// One row per (publishable interaction, parameter) pair, inheritance expanded. Filtering on
-    /// publishability rather than on being a leaf matters here: 19 interactions such as Collision and
-    /// ActionRequest are sent in their own right yet also have subclasses.
+    /// One row per (publishable interaction, parameter) pair, inheritance expanded.
+    ///
+    /// Publishability, not leafness, decides what is listed: 19 interactions such as Collision and
+    /// ActionRequest are sent in their own right yet also have subclasses. Federations commonly send
+    /// only the deepest classes, so the リーフ column lets a reader filter down to that view rather
+    /// than having the narrower choice baked in — leaves are a strict subset of the publishable set.
     /// </summary>
     static void WriteParameterSheet(XlsxWorkbook workbook, FomModel model, FomTypeResolver resolver)
     {
         var sheet = workbook.AddSheet("パラメータICD");
 
-        sheet.AddHeader("インタラクション", "パラメータ名", "宣言元クラス", "データ型", "型分類",
+        sheet.AddHeader("インタラクション", "リーフ", "パラメータ名", "宣言元クラス", "データ型", "型分類",
                         "基本表現", "ビット幅", "単位", "Transportation", "Order", "Notes", "Semantics");
 
         foreach (var cls in model.AllInteractionClasses.Where(c => c.IsPublishable))
@@ -55,6 +58,7 @@ public static partial class IcdExporter
                 var type = resolver.Resolve(parameter.DataType);
                 sheet.AddRow(
                     cls.FullName,
+                    cls.IsLeaf ? "○" : "",
                     parameter.Name,
                     parameter.DeclaringClass,
                     parameter.DataType,
@@ -72,8 +76,8 @@ public static partial class IcdExporter
 
         sheet.FreezeHeader = true;
         sheet.AutoFilter = true;
-        ApplyWidths(sheet, 52, 32, 50, 34, 14, 22, 9, 26, 15, 11, 50, ProseWidth);
-        sheet.WrapColumn(11);
+        ApplyWidths(sheet, 52, 8, 32, 50, 34, 14, 22, 9, 26, 15, 11, 50, ProseWidth);
         sheet.WrapColumn(12);
+        sheet.WrapColumn(13);
     }
 }
