@@ -65,7 +65,9 @@ namespace ICDgenerator
                 Log($"オブジェクトクラス数 : {result.Model.AllObjectClasses.Count}");
                 Log($"リーフクラス数       : {result.Model.AllObjectClasses.Count(c => c.IsLeaf)}");
                 Log($"最大階層             : {result.Model.AllObjectClasses.Max(c => c.Level)}");
-                Log($"継承後の最大属性数   : {result.Model.AllObjectClasses.Max(c => c.AllAttributes.Count)}");
+                Log($"データ型数           : {result.Model.DataTypes.Count}");
+                Log($"注記数               : {result.Model.Notes.Count}");
+                Log($"属性ICD行数          : {result.Model.AllObjectClasses.Where(c => c.IsLeaf).Sum(c => c.AllAttributes.Count)}");
                 Log("");
                 Log("完了しました。");
 

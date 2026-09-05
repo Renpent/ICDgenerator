@@ -73,4 +73,10 @@ public sealed class FomModel
 
     /// <summary>Every object class in document order, flattened.</summary>
     public List<FomObjectClass> AllObjectClasses { get; } = new();
+
+    /// <summary>Every declared data type, keyed by name. Types reference each other by name only.</summary>
+    public Dictionary<string, FomDataType> DataTypes { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Notes keyed by label, as referenced from notes="label1 label2" attributes.</summary>
+    public Dictionary<string, FomNote> Notes { get; } = new(StringComparer.Ordinal);
 }

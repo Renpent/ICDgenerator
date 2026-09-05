@@ -31,6 +31,9 @@ public static class FomParser
             Identification = ParseIdentification(root.Element(Ns + "modelIdentification"))
         };
 
+        ParseDataTypes(root.Element(Ns + "dataTypes"), model);
+        ParseNotes(root.Element(Ns + "notes"), model);
+
         var objects = root.Element(Ns + "objects");
         if (objects is not null)
         {
@@ -42,6 +45,122 @@ public static class FomParser
         }
 
         return model;
+    }
+
+    /// <summary>
+    /// Loads all six data type sections into one dictionary. Types are resolved by name after the
+    /// fact rather than during the walk, because a type may reference one declared further down.
+    /// </summary>
+    static void ParseDataTypes(XElement? el, FomModel model)
+    {
+        if (el is null) return;
+
+        foreach (var (section, element, kind) in new[]
+        {
+            ("basicDataRepresentations", "basicData", FomDataTypeKind.Basic),
+            ("simpleDataTypes", "simpleData", FomDataTypeKind.Simple),
+            ("enumeratedDataTypes", "enumeratedData", FomDataTypeKind.Enumerated),
+            ("arrayDataTypes", "arrayData", FomDataTypeKind.Array),
+            ("fixedRecordDataTypes", "fixedRecordData", FomDataTypeKind.FixedRecord),
+            ("variantRecordDataTypes", "variantRecordData", FomDataTypeKind.VariantRecord)
+        })
+        {
+            var sectionEl = el.Element(Ns + section);
+            if (sectionEl is null) continue;
+
+            foreach (var typeEl in sectionEl.Elements(Ns + element))
+            {
+                var type = ParseDataType(typeEl, kind);
+                if (type.Name.Length > 0) model.DataTypes[type.Name] = type;
+            }
+        }
+    }
+
+    static FomDataType ParseDataType(XElement el, FomDataTypeKind kind)
+    {
+        var type = new FomDataType
+        {
+            Name = Text(el, "name"),
+            Kind = kind,
+            Semantics = Text(el, "semantics"),
+            Notes = SplitNotes(el),
+            Encoding = Text(el, "encoding")
+        };
+
+        switch (kind)
+        {
+            case FomDataTypeKind.Basic:
+                type.Size = int.TryParse(Text(el, "size"), out var size) ? size : null;
+                type.Endian = Text(el, "endian");
+                type.Interpretation = Text(el, "interpretation");
+                break;
+
+            case FomDataTypeKind.Simple:
+                type.Representation = Text(el, "representation");
+                type.Units = Text(el, "units");
+                type.Resolution = Text(el, "resolution");
+                type.Accuracy = Text(el, "accuracy");
+                break;
+
+            case FomDataTypeKind.Enumerated:
+                type.Representation = Text(el, "representation");
+                foreach (var e in el.Elements(Ns + "enumerator"))
+                {
+                    type.Enumerators.Add(new FomEnumerator
+                    {
+                        Name = Text(e, "name"),
+                        Value = Text(e, "value"),
+                        Notes = SplitNotes(e)
+                    });
+                }
+                break;
+
+            case FomDataTypeKind.Array:
+                type.ElementDataType = Text(el, "dataType");
+                type.Cardinality = Text(el, "cardinality");
+                break;
+
+            case FomDataTypeKind.FixedRecord:
+                foreach (var f in el.Elements(Ns + "field"))
+                {
+                    type.Fields.Add(new FomField
+                    {
+                        Name = Text(f, "name"),
+                        DataType = Text(f, "dataType"),
+                        Semantics = Text(f, "semantics"),
+                        Notes = SplitNotes(f)
+                    });
+                }
+                break;
+
+            case FomDataTypeKind.VariantRecord:
+                type.Discriminant = Text(el, "discriminant");
+                type.DiscriminantDataType = Text(el, "dataType");
+                foreach (var a in el.Elements(Ns + "alternative"))
+                {
+                    type.Alternatives.Add(new FomAlternative
+                    {
+                        Enumerator = Text(a, "enumerator"),
+                        Name = Text(a, "name"),
+                        DataType = Text(a, "dataType"),
+                        Semantics = Text(a, "semantics")
+                    });
+                }
+                break;
+        }
+
+        return type;
+    }
+
+    static void ParseNotes(XElement? el, FomModel model)
+    {
+        if (el is null) return;
+
+        foreach (var noteEl in el.Elements(Ns + "note"))
+        {
+            var note = new FomNote { Label = Text(noteEl, "label"), Semantics = Text(noteEl, "semantics") };
+            if (note.Label.Length > 0) model.Notes[note.Label] = note;
+        }
     }
 
     static FomIdentification ParseIdentification(XElement? el)
