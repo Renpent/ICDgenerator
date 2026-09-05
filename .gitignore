@@ -14,6 +14,3 @@ RPR_FOM_v2.0_1516-2010.xml
 
 ## Generated ICD output
 *.xlsx
-
-## Offline NuGet payload (binaries; see offline-packages/README.md to regenerate)
-offline-packages/*.nupkg
