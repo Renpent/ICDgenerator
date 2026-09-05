@@ -9,10 +9,14 @@ public sealed class XlsxSheet
     const int StyleDefault = 0;
     const int StyleHeader = 1;
     const int StyleWrap = 2;
+    const int StyleLink = 3;
 
     readonly List<(object?[] Cells, bool IsHeader)> _rows = new();
     readonly Dictionary<int, double> _widths = new();
     readonly HashSet<int> _wrapColumns = new();
+
+    /// <summary>Cell reference to the target sheet, for internal links. Keyed by "row,column".</summary>
+    readonly Dictionary<(int Row, int Column), string> _links = new();
 
     internal XlsxSheet(string name) => Name = name;
 
@@ -33,6 +37,14 @@ public sealed class XlsxSheet
 
     /// <summary>Marks a column as prose: it wraps and is top-aligned.</summary>
     public void WrapColumn(int column) => _wrapColumns.Add(column);
+
+    /// <summary>
+    /// Turns a cell into a link to the top of another sheet in this workbook. Internal links carry
+    /// their target in a location attribute, so unlike external ones they need no relationship part.
+    /// </summary>
+    /// <param name="row">1-based, counting the header row.</param>
+    public void LinkToSheet(int row, int column, string targetSheetName) =>
+        _links[(row, column)] = $"'{targetSheetName.Replace("'", "''")}'!A1";
 
     internal string BuildXml()
     {
@@ -73,6 +85,7 @@ public sealed class XlsxSheet
             {
                 int column = c + 1;
                 int style = isHeader ? StyleHeader
+                    : _links.ContainsKey((rowNumber, column)) ? StyleLink
                     : _wrapColumns.Contains(column) ? StyleWrap
                     : StyleDefault;
                 AppendCell(sb, ColumnName(column) + rowNumber, cells[c], style);
@@ -81,10 +94,22 @@ public sealed class XlsxSheet
         }
         sb.Append("</sheetData>");
 
-        // Schema order: autoFilter must follow sheetData.
+        // Schema order: autoFilter follows sheetData, and hyperlinks follow autoFilter.
         if (AutoFilter && _rows.Count > 0)
         {
             sb.Append($"<autoFilter ref=\"A1:{lastCell}\"/>");
+        }
+
+        if (_links.Count > 0)
+        {
+            sb.Append("<hyperlinks>");
+            foreach (var ((row, column), location) in _links.OrderBy(l => l.Key.Row).ThenBy(l => l.Key.Column))
+            {
+                sb.Append($"<hyperlink ref=\"{ColumnName(column)}{row}\" location=\"");
+                AppendEscaped(sb, location);
+                sb.Append("\"/>");
+            }
+            sb.Append("</hyperlinks>");
         }
 
         return sb.Append("</worksheet>").ToString();

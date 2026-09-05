@@ -11,10 +11,16 @@ public static partial class IcdExporter
     /// <summary>Width given to columns holding prose.</summary>
     internal const double ProseWidth = 80;
 
-    public static void Export(FomModel model, string path)
+    /// <param name="selections">
+    /// Classes to break out into the extraction sheets. The full parse result is always written
+    /// regardless, so an empty selection simply omits those sheets.
+    /// </param>
+    public static void Export(FomModel model, string path, IReadOnlyList<IcdSelection>? selections = null)
     {
         var workbook = new XlsxWorkbook();
         var resolver = new FomTypeResolver(model);
+
+        WriteSelectionSheets(workbook, model, resolver, selections ?? Array.Empty<IcdSelection>());
 
         WriteOverviewSheet(workbook, model);
         WriteObjectClassSheet(workbook, model);
