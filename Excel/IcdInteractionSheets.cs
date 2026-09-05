@@ -9,7 +9,7 @@ public static partial class IcdExporter
         var sheet = workbook.AddSheet("インタラクション一覧");
 
         sheet.AddHeader("階層", "クラス名", "完全修飾名", "親クラス", "Sharing", "Transportation",
-                        "Order", "自クラスパラメータ数", "継承後パラメータ数", "リーフ", "Notes", "Semantics");
+                        "Order", "自クラスパラメータ数", "継承後パラメータ数", "リーフ", "公開可能", "Notes", "Semantics");
 
         foreach (var cls in model.AllInteractionClasses)
         {
@@ -24,18 +24,23 @@ public static partial class IcdExporter
                 cls.OwnParameters.Count,
                 cls.AllParameters.Count,
                 cls.IsLeaf ? "○" : "",
+                cls.IsPublishable ? "○" : "",
                 ResolveNotes(model, cls.Notes),
                 cls.Semantics);
         }
 
         sheet.FreezeHeader = true;
         sheet.AutoFilter = true;
-        ApplyWidths(sheet, 6, 34, 52, 50, 17, 15, 11, 20, 20, 7, 40, ProseWidth);
-        sheet.WrapColumn(11);
+        ApplyWidths(sheet, 6, 34, 52, 50, 17, 15, 11, 20, 20, 7, 10, 40, ProseWidth);
         sheet.WrapColumn(12);
+        sheet.WrapColumn(13);
     }
 
-    /// <summary>One row per (leaf interaction, parameter) pair, inheritance expanded.</summary>
+    /// <summary>
+    /// One row per (publishable interaction, parameter) pair, inheritance expanded. Filtering on
+    /// publishability rather than on being a leaf matters here: 19 interactions such as Collision and
+    /// ActionRequest are sent in their own right yet also have subclasses.
+    /// </summary>
     static void WriteParameterSheet(XlsxWorkbook workbook, FomModel model, FomTypeResolver resolver)
     {
         var sheet = workbook.AddSheet("パラメータICD");
@@ -43,7 +48,7 @@ public static partial class IcdExporter
         sheet.AddHeader("インタラクション", "パラメータ名", "宣言元クラス", "データ型", "型分類",
                         "基本表現", "ビット幅", "単位", "Transportation", "Order", "Notes", "Semantics");
 
-        foreach (var cls in model.AllInteractionClasses.Where(c => c.IsLeaf))
+        foreach (var cls in model.AllInteractionClasses.Where(c => c.IsPublishable))
         {
             foreach (var parameter in cls.AllParameters)
             {

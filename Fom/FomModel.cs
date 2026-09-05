@@ -68,6 +68,13 @@ public sealed class FomInteractionClass
     public List<FomParameter> AllParameters { get; } = new();
 
     public bool IsLeaf => Children.Count == 0;
+
+    /// <summary>
+    /// Whether a federate may send this interaction. Unlike object classes, an interaction can be
+    /// publishable and still have subclasses — Collision is sent in its own right as well as being
+    /// the parent of CollisionElastic — so this, not <see cref="IsLeaf"/>, decides what the ICD lists.
+    /// </summary>
+    public bool IsPublishable => Sharing.Contains("Publish", StringComparison.Ordinal);
 }
 
 /// <summary>
@@ -98,6 +105,13 @@ public sealed class FomObjectClass
     public List<FomAttribute> AllAttributes { get; } = new();
 
     public bool IsLeaf => Children.Count == 0;
+
+    /// <summary>
+    /// Whether a federate may publish instances of this class. In the RPR FOM this coincides exactly
+    /// with <see cref="IsLeaf"/> — all 49 leaves are PublishSubscribe and no intermediate class is —
+    /// but the ICD keys off publishability because that is the property that actually matters.
+    /// </summary>
+    public bool IsPublishable => Sharing.Contains("Publish", StringComparison.Ordinal);
 }
 
 /// <summary>The parsed FOM. Only the pieces needed for the object class ICD so far.</summary>

@@ -9,7 +9,7 @@ public static partial class IcdExporter
         var sheet = workbook.AddSheet("オブジェクトクラス一覧");
 
         sheet.AddHeader("階層", "クラス名", "完全修飾名", "親クラス", "Sharing",
-                        "自クラス属性数", "継承後属性数", "リーフ", "Notes", "Semantics");
+                        "自クラス属性数", "継承後属性数", "リーフ", "公開可能", "Notes", "Semantics");
 
         foreach (var cls in model.AllObjectClasses)
         {
@@ -23,20 +23,22 @@ public static partial class IcdExporter
                 cls.OwnAttributes.Count,
                 cls.AllAttributes.Count,
                 cls.IsLeaf ? "○" : "",
+                cls.IsPublishable ? "○" : "",
                 ResolveNotes(model, cls.Notes),
                 cls.Semantics);
         }
 
         sheet.FreezeHeader = true;
         sheet.AutoFilter = true;
-        ApplyWidths(sheet, 6, 30, 46, 44, 17, 14, 14, 7, 40, ProseWidth);
-        sheet.WrapColumn(9);
+        ApplyWidths(sheet, 6, 30, 46, 44, 17, 14, 14, 7, 10, 40, ProseWidth);
         sheet.WrapColumn(10);
+        sheet.WrapColumn(11);
     }
 
     /// <summary>
-    /// One row per (leaf class, attribute) pair with inheritance already expanded — the form an ICD
-    /// reader needs, since a class like Aircraft declares nothing of its own yet carries 46 attributes.
+    /// One row per (publishable class, attribute) pair with inheritance already expanded — the form an
+    /// ICD reader needs, since a class like Aircraft declares nothing of its own yet carries 46
+    /// attributes. Intermediate classes are omitted: they exist only to be inherited from.
     /// </summary>
     static void WriteAttributeSheet(XlsxWorkbook workbook, FomModel model, FomTypeResolver resolver)
     {
@@ -46,7 +48,7 @@ public static partial class IcdExporter
                         "ビット幅", "単位", "UpdateType", "UpdateCondition", "Transportation",
                         "Order", "Sharing", "Notes", "Semantics");
 
-        foreach (var cls in model.AllObjectClasses.Where(c => c.IsLeaf))
+        foreach (var cls in model.AllObjectClasses.Where(c => c.IsPublishable))
         {
             foreach (var attribute in cls.AllAttributes)
             {

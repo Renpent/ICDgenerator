@@ -43,9 +43,9 @@ public static partial class IcdExporter
         sheet.AddRow("適用領域", id.ApplicationDomain);
         sheet.AddRow("説明", id.Description);
         sheet.AddRow("オブジェクトクラス数", model.AllObjectClasses.Count);
-        sheet.AddRow("リーフクラス数", model.AllObjectClasses.Count(c => c.IsLeaf));
+        sheet.AddRow("公開可能クラス数", model.AllObjectClasses.Count(c => c.IsPublishable));
         sheet.AddRow("インタラクションクラス数", model.AllInteractionClasses.Count);
-        sheet.AddRow("リーフインタラクション数", model.AllInteractionClasses.Count(c => c.IsLeaf));
+        sheet.AddRow("公開可能インタラクション数", model.AllInteractionClasses.Count(c => c.IsPublishable));
         sheet.AddRow("データ型数", model.DataTypes.Count);
         sheet.AddRow("列挙子数", model.DataTypes.Values.Sum(t => t.Enumerators.Count));
         sheet.AddRow("注記数", model.Notes.Count);

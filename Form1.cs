@@ -63,14 +63,14 @@ namespace ICDgenerator
                 Log($"FOM名           : {result.Model.Identification.Name}");
                 Log($"バージョン      : {result.Model.Identification.Version}");
                 Log($"オブジェクトクラス数 : {result.Model.AllObjectClasses.Count}");
-                Log($"リーフクラス数       : {result.Model.AllObjectClasses.Count(c => c.IsLeaf)}");
+                Log($"公開可能クラス数     : {result.Model.AllObjectClasses.Count(c => c.IsPublishable)}");
                 Log($"最大階層             : {result.Model.AllObjectClasses.Max(c => c.Level)}");
                 Log($"インタラクション数   : {result.Model.AllInteractionClasses.Count}");
                 Log($"データ型数           : {result.Model.DataTypes.Count}");
                 Log($"列挙値数             : {result.Model.DataTypes.Values.Sum(t => t.Enumerators.Count)}");
                 Log($"注記数               : {result.Model.Notes.Count}");
-                Log($"属性ICD行数          : {result.Model.AllObjectClasses.Where(c => c.IsLeaf).Sum(c => c.AllAttributes.Count)}");
-                Log($"パラメータICD行数    : {result.Model.AllInteractionClasses.Where(c => c.IsLeaf).Sum(c => c.AllParameters.Count)}");
+                Log($"属性ICD行数          : {result.Model.AllObjectClasses.Where(c => c.IsPublishable).Sum(c => c.AllAttributes.Count)}");
+                Log($"パラメータICD行数    : {result.Model.AllInteractionClasses.Where(c => c.IsPublishable).Sum(c => c.AllParameters.Count)}");
                 Log("");
                 Log("完了しました。");
 
