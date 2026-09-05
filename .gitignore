@@ -11,3 +11,6 @@ obj/
 
 ## Sample FOM input (large, not part of the source)
 RPR_FOM_v2.0_1516-2010.xml
+
+## Generated ICD output
+*.xlsx
