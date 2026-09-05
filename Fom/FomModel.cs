@@ -33,6 +33,43 @@ public sealed class FomAttribute
     public string DeclaringClass { get; set; } = "";
 }
 
+/// <summary>A &lt;parameter&gt; of an interaction class.</summary>
+public sealed class FomParameter
+{
+    public string Name { get; set; } = "";
+    public string DataType { get; set; } = "";
+    public string Semantics { get; set; } = "";
+    public IReadOnlyList<string> Notes { get; set; } = Array.Empty<string>();
+
+    /// <summary>FQN of the class that declares this parameter (may be an ancestor).</summary>
+    public string DeclaringClass { get; set; } = "";
+}
+
+/// <summary>
+/// An &lt;interactionClass&gt;. Nested the same way object classes are, and parameters are
+/// inherited by subclasses in the same manner.
+/// </summary>
+public sealed class FomInteractionClass
+{
+    public string Name { get; set; } = "";
+    public string FullName { get; set; } = "";
+    public int Level { get; set; }
+
+    public string Sharing { get; set; } = "";
+    public string Transportation { get; set; } = "";
+    public string Order { get; set; } = "";
+    public string Semantics { get; set; } = "";
+    public IReadOnlyList<string> Notes { get; set; } = Array.Empty<string>();
+
+    public FomInteractionClass? Parent { get; set; }
+    public List<FomInteractionClass> Children { get; } = new();
+
+    public List<FomParameter> OwnParameters { get; } = new();
+    public List<FomParameter> AllParameters { get; } = new();
+
+    public bool IsLeaf => Children.Count == 0;
+}
+
 /// <summary>
 /// An &lt;objectClass&gt;. In the 1516-2010 DIF, subclasses are nested inside their
 /// parent element rather than referencing it by name, so this mirrors that tree.
@@ -73,6 +110,12 @@ public sealed class FomModel
 
     /// <summary>Every object class in document order, flattened.</summary>
     public List<FomObjectClass> AllObjectClasses { get; } = new();
+
+    /// <summary>Root interaction classes (in practice a single HLAinteractionRoot).</summary>
+    public List<FomInteractionClass> RootInteractionClasses { get; } = new();
+
+    /// <summary>Every interaction class in document order, flattened.</summary>
+    public List<FomInteractionClass> AllInteractionClasses { get; } = new();
 
     /// <summary>Every declared data type, keyed by name. Types reference each other by name only.</summary>
     public Dictionary<string, FomDataType> DataTypes { get; } = new(StringComparer.Ordinal);

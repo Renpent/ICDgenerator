@@ -44,7 +44,58 @@ public static class FomParser
             }
         }
 
+        var interactions = root.Element(Ns + "interactions");
+        if (interactions is not null)
+        {
+            foreach (var el in interactions.Elements(Ns + "interactionClass"))
+            {
+                model.RootInteractionClasses.Add(ParseInteractionClass(el, parent: null, model));
+            }
+        }
+
         return model;
+    }
+
+    /// <summary>Mirrors <see cref="ParseObjectClass"/>: parameters inherit down the nesting.</summary>
+    static FomInteractionClass ParseInteractionClass(XElement el, FomInteractionClass? parent, FomModel model)
+    {
+        var name = Text(el, "name");
+        var cls = new FomInteractionClass
+        {
+            Name = name,
+            FullName = parent is null ? name : $"{parent.FullName}.{name}",
+            Level = parent is null ? 1 : parent.Level + 1,
+            Sharing = Text(el, "sharing"),
+            Transportation = Text(el, "transportation"),
+            Order = Text(el, "order"),
+            Semantics = Text(el, "semantics"),
+            Notes = SplitNotes(el),
+            Parent = parent
+        };
+
+        foreach (var paramEl in el.Elements(Ns + "parameter"))
+        {
+            cls.OwnParameters.Add(new FomParameter
+            {
+                Name = Text(paramEl, "name"),
+                DataType = Text(paramEl, "dataType"),
+                Semantics = Text(paramEl, "semantics"),
+                Notes = SplitNotes(paramEl),
+                DeclaringClass = cls.FullName
+            });
+        }
+
+        if (parent is not null) cls.AllParameters.AddRange(parent.AllParameters);
+        cls.AllParameters.AddRange(cls.OwnParameters);
+
+        model.AllInteractionClasses.Add(cls);
+
+        foreach (var childEl in el.Elements(Ns + "interactionClass"))
+        {
+            cls.Children.Add(ParseInteractionClass(childEl, cls, model));
+        }
+
+        return cls;
     }
 
     /// <summary>
