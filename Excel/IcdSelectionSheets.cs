@@ -56,7 +56,7 @@ public static partial class IcdExporter
     static (object? Size, string Description) WriteDetailSheet(XlsxSheet sheet, FomModel model,
         FomTypeResolver resolver, FomFlattener flattener, IcdSelection selection)
     {
-        sheet.AddHeader("Name", "Type", "Size(Bytes)", "Amount", "Units", "選択子", "Description");
+        sheet.AddHeader("Name", "Type", "Size(Bytes)", "Amount", "長さ決定", "Units", "選択子", "Description");
 
         var members = selection.IsInteraction
             ? model.AllInteractionClasses.First(c => c.FullName == selection.FullName)
@@ -77,6 +77,7 @@ public static partial class IcdExporter
                     field.TypeName,
                     field.SizeBytes is int bytes ? bytes : field.IsComposite ? "" : "可変",
                     field.Amount,
+                    field.LengthRule,
                     // The FOM writes "NA" where a type has no units; that placeholder is noise in a
                     // working layout sheet, though データ型定義 still reproduces it verbatim.
                     field.Units == "NA" ? "" : field.Units,
@@ -96,8 +97,8 @@ public static partial class IcdExporter
 
         sheet.FreezeHeader = true;
         sheet.AutoFilter = true;
-        ApplyWidths(sheet, 44, 40, 13, 10, 26, 26, ProseWidth);
-        sheet.WrapColumn(7);
+        ApplyWidths(sheet, 44, 40, 13, 24, 22, 26, 26, ProseWidth);
+        sheet.WrapColumn(8);
 
         return (fixedSize ? totalBytes : "可変", description);
     }

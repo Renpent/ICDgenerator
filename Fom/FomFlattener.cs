@@ -6,7 +6,11 @@ namespace ICDgenerator.Fom;
 /// </summary>
 /// <param name="Depth">0 for the attribute or parameter itself, deeper for nested members.</param>
 /// <param name="SizeBytes">Size of a single element; null when the encoding is variable length.</param>
-/// <param name="Amount">Element count — above 1 only for arrays, "可変" for dynamic ones.</param>
+/// <param name="Amount">
+/// Element count. A number for fixed arrays, the name of the count row for dynamic ones, and 1
+/// for everything else — never a bare "変長", so that a reader always has something to parse by.
+/// </param>
+/// <param name="LengthRule">How a variable length is determined; empty when the size is fixed.</param>
 public sealed record FlatField(
     int Depth,
     string Name,
@@ -16,7 +20,8 @@ public sealed record FlatField(
     string Amount,
     string Units,
     string Selector,
-    string Semantics)
+    string Semantics,
+    string LengthRule = "")
 {
     public bool IsComposite { get; init; }
 }
@@ -27,6 +32,11 @@ public sealed record FlatField(
 /// </summary>
 public sealed class FomFlattener
 {
+    /// <summary>Width of the element count that precedes a variable array, per HLAvariableArray.</summary>
+    const int CountBytes = 4;
+
+    const string CountType = "HLAinteger32BE";
+
     /// <summary>
     /// Arrays contribute a count rather than one row per element; expanding MarkingArray31 into 31
     /// rows of Octet would bury the layout instead of describing it.
@@ -64,7 +74,7 @@ public sealed class FomFlattener
             : ToBytes(resolved.SizeInBits);
 
         bool composite = kind is FomDataTypeKind.FixedRecord or FomDataTypeKind.VariantRecord
-            || (kind == FomDataTypeKind.Array && ElementIsComposite(type));
+            or FomDataTypeKind.Array;
 
         // Stop before recursing into a type that is already on the stack, or too deep to be useful.
         bool descend = composite && depth < MaxDepth && type is not null && visiting.Add(dataType);
@@ -74,12 +84,15 @@ public sealed class FomFlattener
             name,
             dataType,
             resolved.BaseRepresentation,
-            // A composite that we are about to break open would otherwise double-count its own size.
-            descend ? null : sizeBytes,
-            AmountOf(type, kind),
+            // A record that we are about to break open leaves its size to the fields beneath it.
+            // An array keeps its element size, because Size x Amount is what gives its total and
+            // the rows beneath describe a single element rather than adding to it.
+            descend && kind != FomDataTypeKind.Array ? null : sizeBytes,
+            AmountOf(type, kind, name),
             resolved.Units,
             selector,
-            semantics)
+            semantics,
+            LengthRuleOf(type, kind))
         {
             IsComposite = composite
         });
@@ -105,7 +118,17 @@ public sealed class FomFlattener
                 break;
 
             case FomDataTypeKind.Array:
-                // One level for the element type; the count lives on the array row's Amount.
+                // Lay the array out as it appears on the wire: the element count first where one is
+                // present, then the element itself. A dynamic array with no count in the HLA
+                // encoding still gets a row, because the UDP side needs one to parse unambiguously —
+                // the LengthRule column marks it as added by the gateway rather than carried by HLA.
+                if (!IsFixedCardinality(type!))
+                {
+                    rows.Add(new FlatField(depth + 1, CountFieldName(name), CountType, CountType,
+                        CountBytes, "1", "", "",
+                        $"{name} の要素数。", CountRuleOf(type!)));
+                }
+
                 Expand(ElementName(type!), type!.ElementDataType, "", "", depth + 1, rows, visiting);
                 break;
         }
@@ -113,22 +136,49 @@ public sealed class FomFlattener
         visiting.Remove(dataType);
     }
 
-    bool ElementIsComposite(FomDataType? type)
-    {
-        if (type?.Kind != FomDataTypeKind.Array) return false;
-        if (!_model.DataTypes.TryGetValue(type.ElementDataType, out var element)) return false;
+    static bool IsFixedCardinality(FomDataType type) => int.TryParse(type.Cardinality, out _);
 
-        return element.Kind is FomDataTypeKind.FixedRecord or FomDataTypeKind.VariantRecord
-            or FomDataTypeKind.Array;
-    }
+    static string CountFieldName(string arrayName) => arrayName + "_Count";
 
-    /// <summary>Arrays report their element count; everything else is a single value.</summary>
-    static string AmountOf(FomDataType? type, FomDataTypeKind kind)
+    /// <summary>
+    /// An array's element count is a number when the cardinality is fixed, and otherwise the name of
+    /// the count row emitted just above it — so a reader always has a concrete thing to read.
+    /// </summary>
+    static string AmountOf(FomDataType? type, FomDataTypeKind kind, string name)
     {
         if (kind != FomDataTypeKind.Array || type is null) return "1";
 
-        return int.TryParse(type.Cardinality, out var count) ? count.ToString() : "可変";
+        return int.TryParse(type.Cardinality, out var count)
+            ? count.ToString()
+            : CountFieldName(name);
     }
+
+    /// <summary>How the length of a variable array is established, per its HLA encoding.</summary>
+    static string LengthRuleOf(FomDataType? type, FomDataTypeKind kind)
+    {
+        if (kind != FomDataTypeKind.Array || type is null) return "";
+
+        return type.Encoding switch
+        {
+            "HLAfixedArray" => "固定",
+            "HLAvariableArray" => "長さ前置(HLA)",
+            "RPRnullTerminatedArray" => "終端子",
+            "RPRlengthlessArray" => "長さ情報なし(要GW付加)",
+            "RPRpaddingTo32Array" or "RPRpaddingTo64Array" => "パディング",
+            _ => type.Encoding
+        };
+    }
+
+    /// <summary>
+    /// Whether the count row describes something HLA already puts on the wire, or something the
+    /// gateway has to add. HLAvariableArray prefixes a 32-bit count; RPRlengthlessArray does not.
+    /// </summary>
+    static string CountRuleOf(FomDataType type) => type.Encoding switch
+    {
+        "HLAvariableArray" => "長さ前置(HLA)",
+        "RPRnullTerminatedArray" => "終端子から算出",
+        _ => "GW付加"
+    };
 
     static string ElementName(FomDataType arrayType) => arrayType.ElementDataType + " (要素)";
 
