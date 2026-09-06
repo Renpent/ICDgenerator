@@ -40,14 +40,21 @@ public static partial class IcdExporter
         // workbook, so add the index sheet up front and fill in its rows as the details are built.
         var rows = new List<IndexRow>();
 
+        // A detail sheet names enumerated types but cannot say what values they take, which is
+        // exactly what someone implementing the layout needs. Collected here so the listing that
+        // follows covers the selected classes only, instead of the FOM's several thousand values.
+        var enumUsage = new SortedDictionary<string, SortedSet<string>>(StringComparer.Ordinal);
+
         foreach (var selection in selections)
         {
             var detail = workbook.AddSheet(selection.ShortName);
-            rows.Add(WriteDetailSheet(detail, model, resolver, flattener, selection) with
+            rows.Add(WriteDetailSheet(detail, model, resolver, flattener, selection, enumUsage) with
             {
                 SheetName = detail.Name
             });
         }
+
+        WriteSelectedEnumeratorSheet(workbook, model, resolver, enumUsage);
 
         for (int i = 0; i < rows.Count; i++)
         {
@@ -64,7 +71,8 @@ public static partial class IcdExporter
     }
 
     static IndexRow WriteDetailSheet(XlsxSheet sheet, FomModel model, FomTypeResolver resolver,
-        FomFlattener flattener, IcdSelection selection)
+        FomFlattener flattener, IcdSelection selection,
+        IDictionary<string, SortedSet<string>> enumUsage)
     {
         sheet.AddHeader("Name", "Type", "Size(Bytes)", "Amount", "長さ決定", "Units", "選択子",
                         "Transportation", "信頼配送", "Order", "Description");
@@ -95,6 +103,16 @@ public static partial class IcdExporter
             bool topRow = true;
             foreach (var field in flattener.Flatten(name, dataType, semantics))
             {
+                if (model.DataTypes.TryGetValue(field.TypeName, out var fieldType)
+                    && fieldType.Kind == FomDataTypeKind.Enumerated)
+                {
+                    if (!enumUsage.TryGetValue(field.TypeName, out var users))
+                    {
+                        enumUsage[field.TypeName] = users = new SortedSet<string>(StringComparer.Ordinal);
+                    }
+                    users.Add(selection.ShortName);
+                }
+
                 // Transportation applies to the member as a whole, so it is stated once on its top
                 // row rather than repeated down the expansion.
                 sheet.AddRow(
@@ -138,6 +156,49 @@ public static partial class IcdExporter
                 : distinct.Any(t => model.IsReliable(t) == true) ? "一部要"
                 : "",
             interaction?.Semantics ?? objectClass!.Semantics);
+    }
+
+    /// <summary>
+    /// Lists the values of every enumerated type the selected classes actually reach. The full
+    /// 列挙値一覧 sheet still carries the whole FOM; this one stays readable by covering only what
+    /// the extracted layout refers to.
+    /// </summary>
+    static void WriteSelectedEnumeratorSheet(XlsxWorkbook workbook, FomModel model,
+        FomTypeResolver resolver, IReadOnlyDictionary<string, SortedSet<string>> enumUsage)
+    {
+        if (enumUsage.Count == 0) return;
+
+        var sheet = workbook.AddSheet("抽出列挙値");
+        sheet.AddHeader("列挙型", "使用クラス", "基本表現", "Size(Bytes)", "列挙子名", "値",
+                        "Notes", "型のSemantics");
+
+        foreach (var (typeName, users) in enumUsage)
+        {
+            if (!model.DataTypes.TryGetValue(typeName, out var type)) continue;
+
+            var resolved = resolver.Resolve(typeName);
+            var usedBy = string.Join(", ", users);
+
+            foreach (var enumerator in type.Enumerators)
+            {
+                sheet.AddRow(
+                    typeName,
+                    usedBy,
+                    resolved.BaseRepresentation,
+                    resolved.SizeInBytes,
+                    enumerator.Name,
+                    // Values are plain integers throughout, so emit them as numbers.
+                    long.TryParse(enumerator.Value, out var value) ? value : enumerator.Value,
+                    ResolveNotes(model, enumerator.Notes),
+                    type.Semantics);
+            }
+        }
+
+        sheet.FreezeHeader = true;
+        sheet.AutoFilter = true;
+        ApplyWidths(sheet, 38, 30, 24, 13, 44, 12, 34, ProseWidth);
+        sheet.WrapColumn(7);
+        sheet.WrapColumn(8);
     }
 
     /// <summary>
