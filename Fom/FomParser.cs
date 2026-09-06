@@ -50,6 +50,7 @@ public sealed class FomParser
 
         var parser = new FomParser(ns, model);
         parser.ParseModel(root);
+        parser.ReportUnhandled();
         return model;
     }
 
@@ -105,8 +106,12 @@ public sealed class FomParser
             Parent = parent
         };
 
+        NoteUnhandled(el, "name", "sharing", "transportation", "order", "semantics",
+            "parameter", "interactionClass");
+
         foreach (var paramEl in el.Elements(_ns + "parameter"))
         {
+            NoteUnhandled(paramEl, "name", "dataType", "semantics");
             cls.OwnParameters.Add(new FomParameter
             {
                 Name = Text(paramEl, "name"),
@@ -312,6 +317,8 @@ public sealed class FomParser
             Parent = parent
         };
 
+        NoteUnhandled(el, "name", "sharing", "semantics", "attribute", "objectClass");
+
         foreach (var attrEl in el.Elements(_ns + "attribute"))
         {
             cls.OwnAttributes.Add(ParseAttribute(attrEl, cls.FullName));
@@ -330,8 +337,13 @@ public sealed class FomParser
         return cls;
     }
 
-    FomAttribute ParseAttribute(XElement el, string declaringClass) => new()
+    FomAttribute ParseAttribute(XElement el, string declaringClass)
     {
+        NoteUnhandled(el, "name", "dataType", "updateType", "updateCondition", "ownership",
+            "sharing", "transportation", "order", "semantics");
+
+        return new FomAttribute
+        {
         Name = Text(el, "name"),
         DataType = Text(el, "dataType"),
         UpdateType = Text(el, "updateType"),
@@ -341,9 +353,37 @@ public sealed class FomParser
         Transportation = Text(el, "transportation"),
         Order = Text(el, "order"),
         Semantics = Text(el, "semantics"),
-        Notes = SplitNotes(el),
-        DeclaringClass = declaringClass
-    };
+            Notes = SplitNotes(el),
+            DeclaringClass = declaringClass
+        };
+    }
+
+    /// <summary>
+    /// Child element names this parser has never read, as "parent/child". IEEE 1516-2010 allows
+    /// elements the RPR FOM happens not to use (DDM dimensions on an attribute, for instance), and a
+    /// FOM that does use them would otherwise have them dropped without a word.
+    /// </summary>
+    readonly HashSet<string> _unhandled = new(StringComparer.Ordinal);
+
+    void NoteUnhandled(XElement el, params string[] handled)
+    {
+        foreach (var child in el.Elements())
+        {
+            if (Array.IndexOf(handled, child.Name.LocalName) >= 0) continue;
+
+            _unhandled.Add($"{el.Name.LocalName}/{child.Name.LocalName}");
+        }
+    }
+
+    void ReportUnhandled()
+    {
+        if (_unhandled.Count == 0) return;
+
+        _model.Warnings.Add(
+            "このツールが読み取っていない要素があります: " +
+            string.Join(", ", _unhandled.OrderBy(x => x, StringComparer.Ordinal)) +
+            "。ICDに反映されていないため、必要なら対応を追加してください。");
+    }
 
     string Text(XElement parent, string localName) =>
         parent.Element(_ns + localName)?.Value.Trim() ?? "";
