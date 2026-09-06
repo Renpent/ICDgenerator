@@ -57,6 +57,9 @@ public static partial class IcdExporter
         sheet.AddRow("注記数", model.Notes.Count);
         sheet.AddRow("生成日時", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
 
+        // Anything the parser could not take for granted belongs where the reader will see it.
+        foreach (var warning in model.Warnings) sheet.AddRow("警告", warning);
+
         sheet.SetColumnWidth(1, 26);
         sheet.SetColumnWidth(2, ProseWidth);
         sheet.WrapColumn(2);

@@ -138,6 +138,13 @@ public sealed class FomModel
     public Dictionary<string, FomNote> Notes { get; } = new(StringComparer.Ordinal);
 
     /// <summary>
+    /// Things the parser could not take for granted — an unexpected namespace, a size that is not a
+    /// whole number of bytes. Surfaced in the UI log and on the 概要 sheet rather than thrown, so an
+    /// unusual but readable FOM still produces output.
+    /// </summary>
+    public List<string> Warnings { get; } = new();
+
+    /// <summary>
     /// Transportation types the FOM declares. Often empty — the RPR FOM leaves the section
     /// self-closing — in which case <see cref="IsReliable"/> falls back to the HLA standard types.
     /// </summary>

@@ -67,6 +67,8 @@ namespace ICDgenerator
                 Log($"列挙値数             : {model.DataTypes.Values.Sum(t => t.Enumerators.Count)}");
                 Log($"注記数               : {model.Notes.Count}");
                 Log("");
+                foreach (var warning in model.Warnings) Log("警告: " + warning);
+                if (model.Warnings.Count > 0) Log("");
                 Log("抽出したいクラスにチェックを入れて「ICD生成」を押してください。");
                 Log("チェックしなくても、全体のパース結果は常に出力されます。");
 

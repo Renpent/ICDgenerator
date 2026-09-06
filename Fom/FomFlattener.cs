@@ -120,12 +120,12 @@ public sealed class FomFlattener
             path,
             dataType,
             resolved.BaseRepresentation,
-            ToBytes(resolved.SizeInBits),
+            resolved.SizeInBytes,
             amount,
             resolved.Units,
             selector,
             semantics,
-            lengthRule.Length > 0 ? lengthRule : composite ? "展開打切り" : ""));
+            FirstRule(lengthRule, composite ? "展開打切り" : "", SubByteRule(resolved))));
     }
 
     void ExpandVariant(string path, FomDataType type, string selector, string amount, int depth,
@@ -174,8 +174,8 @@ public sealed class FomFlattener
         // An array of primitives is a single row: the element size times the count.
         var resolved = _resolver.Resolve(type.ElementDataType);
         rows.Add(new FlatField(path, type.ElementDataType, resolved.BaseRepresentation,
-            ToBytes(resolved.SizeInBits), elementAmount, resolved.Units, selector, semantics,
-            LengthRuleOf(type)));
+            resolved.SizeInBytes, elementAmount, resolved.Units, selector, semantics,
+            FirstRule(LengthRuleOf(type), SubByteRule(resolved))));
     }
 
     /// <summary>
@@ -211,6 +211,14 @@ public sealed class FomFlattener
             ? known.CountRule
             : $"要確認({type.Encoding})";
 
-    /// <summary>Every basic type in this FOM is a whole number of bytes.</summary>
-    static int? ToBytes(int? bits) => bits is int value ? value / 8 : null;
+    static string FirstRule(params string[] candidates) =>
+        candidates.FirstOrDefault(c => c.Length > 0) ?? "";
+
+    /// <summary>
+    /// A basic type narrower than a byte cannot be laid out in a byte-oriented ICD without bit
+    /// packing, which this sheet has no way to express. Size is rounded up and the row says so,
+    /// rather than reporting a byte count that does not match the wire.
+    /// </summary>
+    static string SubByteRule(ResolvedType resolved) =>
+        resolved.IsWholeBytes ? "" : $"要確認(ビット幅{resolved.SizeInBits})";
 }

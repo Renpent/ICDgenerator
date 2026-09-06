@@ -12,6 +12,15 @@ public sealed record ResolvedType(
     bool IsKnown)
 {
     public string SizeText => SizeInBits is int bits ? bits.ToString() : IsKnown ? "可変" : "";
+
+    /// <summary>
+    /// Width in whole bytes, or null when the size is variable. Sizes are declared in bits and every
+    /// basic type in practice is a whole number of bytes; <see cref="IsWholeBytes"/> says when that
+    /// does not hold, rather than letting integer division quietly report a truncated size.
+    /// </summary>
+    public int? SizeInBytes => SizeInBits is int bits ? (bits + 7) / 8 : null;
+
+    public bool IsWholeBytes => SizeInBits is not int bits || bits % 8 == 0;
 }
 
 /// <summary>
