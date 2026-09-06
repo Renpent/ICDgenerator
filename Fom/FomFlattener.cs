@@ -61,7 +61,7 @@ public sealed class FomFlattener
     }
 
     void Expand(string name, string dataType, string semantics, string selector, int depth,
-        List<FlatField> rows, HashSet<string> visiting)
+        List<FlatField> rows, HashSet<string> visiting, string LengthRule = "")
     {
         var resolved = _resolver.Resolve(dataType);
         _model.DataTypes.TryGetValue(dataType, out var type);
@@ -92,7 +92,7 @@ public sealed class FomFlattener
             resolved.Units,
             selector,
             semantics,
-            LengthRuleOf(type, kind))
+            LengthRule.Length > 0 ? LengthRule : LengthRuleOf(type, kind))
         {
             IsComposite = composite
         });
@@ -109,7 +109,12 @@ public sealed class FomFlattener
                 break;
 
             case FomDataTypeKind.VariantRecord:
-                foreach (var alternative in type!.Alternatives)
+                // The discriminant is a real field: it precedes the selected alternative on the wire
+                // and is what tells the receiver which alternative follows.
+                Expand(type!.Discriminant, type.DiscriminantDataType, $"{name} の判別子。",
+                    "", depth + 1, rows, visiting, LengthRule: "判別子");
+
+                foreach (var alternative in type.Alternatives)
                 {
                     // The selector column records which discriminant value picks this branch.
                     Expand(alternative.Name, alternative.DataType, alternative.Semantics,
@@ -161,23 +166,22 @@ public sealed class FomFlattener
         return type.Encoding switch
         {
             "HLAfixedArray" => "固定",
-            "HLAvariableArray" => "長さ前置(HLA)",
-            "RPRnullTerminatedArray" => "終端子",
-            "RPRlengthlessArray" => "長さ情報なし(要GW付加)",
             "RPRpaddingTo32Array" or "RPRpaddingTo64Array" => "パディング",
-            _ => type.Encoding
+            // Every non-fixed array is preceded by a count row in the UDP layout; where that count's
+            // value comes from is recorded on the count row itself.
+            _ => "個数前置",
         };
     }
 
     /// <summary>
-    /// Whether the count row describes something HLA already puts on the wire, or something the
-    /// gateway has to add. HLAvariableArray prefixes a 32-bit count; RPRlengthlessArray does not.
+    /// Where the gateway gets this count. The field is always present in the UDP layout; what differs
+    /// is whether HLA hands the value over or the gateway has to work it out.
     /// </summary>
     static string CountRuleOf(FomDataType type) => type.Encoding switch
     {
-        "HLAvariableArray" => "長さ前置(HLA)",
-        "RPRnullTerminatedArray" => "終端子から算出",
-        _ => "GW付加"
+        "HLAvariableArray" => "HLA側も前置",
+        "RPRnullTerminatedArray" => "HLA側は終端子",
+        _ => "HLA側になし(GW算出)"
     };
 
     static string ElementName(FomDataType arrayType) => arrayType.ElementDataType + " (要素)";
