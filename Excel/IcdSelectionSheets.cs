@@ -98,10 +98,9 @@ public static partial class IcdExporter
                 // Transportation applies to the member as a whole, so it is stated once on its top
                 // row rather than repeated down the expansion.
                 sheet.AddRow(
-                    // Depth is shown by indentation so the bare leaf name keeps its context.
-                    new string(' ', field.Depth * 2) + field.Name,
+                    field.Path,
                     field.TypeName,
-                    field.SizeBytes is int bytes ? bytes : field.IsComposite ? "" : "可変",
+                    field.SizeBytes is int bytes ? bytes : "可変",
                     field.Amount,
                     field.LengthRule,
                     // The FOM writes "NA" where a type has no units; that placeholder is noise in a
@@ -124,7 +123,8 @@ public static partial class IcdExporter
 
         sheet.FreezeHeader = true;
         sheet.AutoFilter = true;
-        ApplyWidths(sheet, 44, 40, 13, 24, 22, 26, 26, 17, 10, 11, ProseWidth);
+        // Paths run long now that they carry the whole structure, so Name gets the width back.
+        ApplyWidths(sheet, 62, 34, 13, 26, 22, 24, 24, 17, 10, 11, ProseWidth);
         sheet.WrapColumn(11);
 
         var distinct = transportations.Distinct(StringComparer.Ordinal).ToList();
