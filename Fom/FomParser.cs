@@ -33,6 +33,7 @@ public static class FomParser
 
         ParseDataTypes(root.Element(Ns + "dataTypes"), model);
         ParseNotes(root.Element(Ns + "notes"), model);
+        ParseTransportations(root.Element(Ns + "transportations"), model);
 
         var objects = root.Element(Ns + "objects");
         if (objects is not null)
@@ -202,6 +203,36 @@ public static class FomParser
 
         return type;
     }
+
+    /// <summary>
+    /// Reads the transportation types a FOM declares. The section is frequently absent or empty, in
+    /// which case <see cref="FomModel.IsReliable"/> relies on the HLA standard names instead.
+    /// </summary>
+    static void ParseTransportations(XElement? el, FomModel model)
+    {
+        if (el is null) return;
+
+        foreach (var transportEl in el.Elements(Ns + "transportation"))
+        {
+            var name = Text(transportEl, "name");
+            if (name.Length == 0) continue;
+
+            model.Transportations[name] = new FomTransportation
+            {
+                Name = name,
+                Reliable = ParseYesNo(Text(transportEl, "reliable")),
+                Semantics = Text(transportEl, "semantics")
+            };
+        }
+    }
+
+    /// <summary>The DIF spells booleans as Yes/No; anything else is treated as undeclared.</summary>
+    static bool? ParseYesNo(string value) => value.Trim().ToLowerInvariant() switch
+    {
+        "yes" or "true" => true,
+        "no" or "false" => false,
+        _ => null
+    };
 
     static void ParseNotes(XElement? el, FomModel model)
     {

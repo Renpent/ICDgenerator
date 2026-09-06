@@ -11,12 +11,19 @@ public sealed record IcdSelection(string FullName, bool IsInteraction)
 
 public static partial class IcdExporter
 {
+    /// <summary>One line of the 抽出概要 index.</summary>
+    sealed record IndexRow(string Display, object? Size, string Transportation,
+        string Reliability, string Description)
+    {
+        public string SheetName { get; init; } = "";
+    }
+
     /// <summary>
     /// Writes the extraction view: an index listing each selected class, and one detail sheet per
     /// class enumerating everything it puts on the wire. The index links to the detail sheets.
     ///
-    /// ID / Port / Rate have no counterpart in the FOM — HLA carries no port and this FOM declares
-    /// no update rates — so they are emitted blank for the reader to fill in.
+    /// ID / Port / Rate have no counterpart in a FOM — HLA carries no port, and update rates are
+    /// rarely declared — so they are emitted blank for the reader to fill in.
     /// </summary>
     static void WriteSelectionSheets(XlsxWorkbook workbook, FomModel model, FomTypeResolver resolver,
         IReadOnlyList<IcdSelection> selections)
@@ -26,51 +33,70 @@ public static partial class IcdExporter
         var flattener = new FomFlattener(model, resolver);
         var index = workbook.AddSheet("抽出概要");
 
-        index.AddHeader("Name", "ID", "Port", "Rate", "Size(Bytes)", "Descripter");
+        index.AddHeader("Name", "ID", "Port", "Rate", "Size(Bytes)",
+                        "Transportation", "信頼配送", "Descripter");
 
         // Sheets must exist before the index can link to them, and the index must come first in the
         // workbook, so add the index sheet up front and fill in its rows as the details are built.
-        var rows = new List<(string Display, string SheetName, object? Size, string Description)>();
+        var rows = new List<IndexRow>();
 
         foreach (var selection in selections)
         {
             var detail = workbook.AddSheet(selection.ShortName);
-            var (size, description) = WriteDetailSheet(detail, model, resolver, flattener, selection);
-            rows.Add((selection.ShortName, detail.Name, size, description));
+            rows.Add(WriteDetailSheet(detail, model, resolver, flattener, selection) with
+            {
+                SheetName = detail.Name
+            });
         }
 
         for (int i = 0; i < rows.Count; i++)
         {
-            var (display, sheetName, size, description) = rows[i];
-            index.AddRow(display, null, null, null, size, description);
-            index.LinkToSheet(i + 2, 1, sheetName);
+            var row = rows[i];
+            index.AddRow(row.Display, null, null, null, row.Size,
+                row.Transportation, row.Reliability, row.Description);
+            index.LinkToSheet(i + 2, 1, row.SheetName);
         }
 
         index.FreezeHeader = true;
         index.AutoFilter = true;
-        ApplyWidths(index, 34, 12, 12, 12, 14, ProseWidth);
-        index.WrapColumn(6);
+        ApplyWidths(index, 34, 12, 12, 12, 14, 20, 12, ProseWidth);
+        index.WrapColumn(8);
     }
 
-    /// <returns>The class's total size in bytes (or "可変") and its semantics, for the index row.</returns>
-    static (object? Size, string Description) WriteDetailSheet(XlsxSheet sheet, FomModel model,
-        FomTypeResolver resolver, FomFlattener flattener, IcdSelection selection)
+    static IndexRow WriteDetailSheet(XlsxSheet sheet, FomModel model, FomTypeResolver resolver,
+        FomFlattener flattener, IcdSelection selection)
     {
-        sheet.AddHeader("Name", "Type", "Size(Bytes)", "Amount", "長さ決定", "Units", "選択子", "Description");
+        sheet.AddHeader("Name", "Type", "Size(Bytes)", "Amount", "長さ決定", "Units", "選択子",
+                        "Transportation", "信頼配送", "Order", "Description");
 
-        var members = selection.IsInteraction
+        // Interactions declare transportation once for the class; object classes declare it per
+        // attribute. Carrying it with each member covers both without assuming they agree.
+        var interaction = selection.IsInteraction
             ? model.AllInteractionClasses.First(c => c.FullName == selection.FullName)
-                .AllParameters.Select(p => (p.Name, p.DataType, p.Semantics))
-            : model.AllObjectClasses.First(c => c.FullName == selection.FullName)
-                .AllAttributes.Select(a => (a.Name, a.DataType, a.Semantics));
+            : null;
+        var objectClass = interaction is null
+            ? model.AllObjectClasses.First(c => c.FullName == selection.FullName)
+            : null;
+
+        var members = interaction is not null
+            ? interaction.AllParameters.Select(p =>
+                (p.Name, p.DataType, p.Semantics, interaction.Transportation, interaction.Order))
+            : objectClass!.AllAttributes.Select(a =>
+                (a.Name, a.DataType, a.Semantics, a.Transportation, a.Order));
 
         int totalBytes = 0;
         bool fixedSize = true;
+        var transportations = new List<string>();
 
-        foreach (var (name, dataType, semantics) in members)
+        foreach (var (name, dataType, semantics, transportation, order) in members)
         {
+            if (transportation.Length > 0) transportations.Add(transportation);
+
+            bool topRow = true;
             foreach (var field in flattener.Flatten(name, dataType, semantics))
             {
+                // Transportation applies to the member as a whole, so it is stated once on its top
+                // row rather than repeated down the expansion.
                 sheet.AddRow(
                     // Depth is shown by indentation so the bare leaf name keeps its context.
                     new string(' ', field.Depth * 2) + field.Name,
@@ -82,7 +108,12 @@ public static partial class IcdExporter
                     // working layout sheet, though データ型定義 still reproduces it verbatim.
                     field.Units == "NA" ? "" : field.Units,
                     field.Selector,
+                    topRow ? transportation : "",
+                    topRow ? ReliabilityText(model, transportation) : "",
+                    topRow ? order : "",
                     field.Semantics);
+
+                topRow = false;
             }
 
             // The class total comes from the member's own resolved width, not from the expanded
@@ -91,15 +122,33 @@ public static partial class IcdExporter
             else fixedSize = false;
         }
 
-        var description = selection.IsInteraction
-            ? model.AllInteractionClasses.First(c => c.FullName == selection.FullName).Semantics
-            : model.AllObjectClasses.First(c => c.FullName == selection.FullName).Semantics;
-
         sheet.FreezeHeader = true;
         sheet.AutoFilter = true;
-        ApplyWidths(sheet, 44, 40, 13, 24, 22, 26, 26, ProseWidth);
-        sheet.WrapColumn(8);
+        ApplyWidths(sheet, 44, 40, 13, 24, 22, 26, 26, 17, 10, 11, ProseWidth);
+        sheet.WrapColumn(11);
 
-        return (fixedSize ? totalBytes : "可変", description);
+        var distinct = transportations.Distinct(StringComparer.Ordinal).ToList();
+
+        return new IndexRow(
+            selection.ShortName,
+            fixedSize ? totalBytes : "可変",
+            // One value for the class where the members agree; say so rather than pick one when not.
+            distinct.Count switch { 0 => "", 1 => distinct[0], _ => "混在" },
+            distinct.Count == 1 ? ReliabilityText(model, distinct[0])
+                : distinct.Any(t => model.IsReliable(t) == true) ? "一部要"
+                : "",
+            interaction?.Semantics ?? objectClass!.Semantics);
     }
+
+    /// <summary>
+    /// Reads reliability off the model, so a FOM declaring its own transportation types is honoured.
+    /// Reports 不明 rather than guessing when neither the FOM nor the HLA standard names say.
+    /// </summary>
+    static string ReliabilityText(FomModel model, string transportation) =>
+        model.IsReliable(transportation) switch
+        {
+            true => "要",
+            false => "不要",
+            _ => transportation.Length > 0 ? "不明" : ""
+        };
 }

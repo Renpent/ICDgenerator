@@ -158,31 +158,47 @@ public sealed class FomFlattener
             : CountFieldName(name);
     }
 
-    /// <summary>How the length of a variable array is established, per its HLA encoding.</summary>
+    /// <summary>
+    /// How a variable array's length is established.
+    ///
+    /// IEEE 1516-2010 defines only HLAfixedArray and HLAvariableArray; every other encoding is an
+    /// extension the FOM itself introduces, and the standard does not say how it delimits its
+    /// elements. Known extensions are listed so that a FOM using them reads well, but an unrecognised
+    /// one is reported as unrecognised rather than guessed at — asserting a delimiting rule that the
+    /// FOM never stated would put a wrong layout into the ICD.
+    /// </summary>
+    static readonly Dictionary<string, (string ArrayRule, string CountRule)> KnownEncodings =
+        new(StringComparer.Ordinal)
+        {
+            // Defined by IEEE 1516-2010.
+            ["HLAfixedArray"] = ("固定", ""),
+            ["HLAvariableArray"] = ("個数前置", "HLA側も前置"),
+
+            // Extensions seen in the RPR FOM. Add entries here as other FOMs bring their own.
+            ["RPRlengthlessArray"] = ("個数前置", "HLA側になし(GW算出)"),
+            ["RPRnullTerminatedArray"] = ("個数前置", "HLA側は終端子"),
+            ["RPRpaddingTo32Array"] = ("パディング", "HLA側になし(GW算出)"),
+            ["RPRpaddingTo64Array"] = ("パディング", "HLA側になし(GW算出)")
+        };
+
     static string LengthRuleOf(FomDataType? type, FomDataTypeKind kind)
     {
         if (kind != FomDataTypeKind.Array || type is null) return "";
 
-        return type.Encoding switch
-        {
-            "HLAfixedArray" => "固定",
-            "RPRpaddingTo32Array" or "RPRpaddingTo64Array" => "パディング",
-            // Every non-fixed array is preceded by a count row in the UDP layout; where that count's
-            // value comes from is recorded on the count row itself.
-            _ => "個数前置",
-        };
+        if (KnownEncodings.TryGetValue(type.Encoding, out var known)) return known.ArrayRule;
+
+        // Fixed cardinality is unambiguous whatever the encoding is called.
+        return IsFixedCardinality(type) ? "固定" : $"要確認({type.Encoding})";
     }
 
     /// <summary>
     /// Where the gateway gets this count. The field is always present in the UDP layout; what differs
     /// is whether HLA hands the value over or the gateway has to work it out.
     /// </summary>
-    static string CountRuleOf(FomDataType type) => type.Encoding switch
-    {
-        "HLAvariableArray" => "HLA側も前置",
-        "RPRnullTerminatedArray" => "HLA側は終端子",
-        _ => "HLA側になし(GW算出)"
-    };
+    static string CountRuleOf(FomDataType type) =>
+        KnownEncodings.TryGetValue(type.Encoding, out var known) && known.CountRule.Length > 0
+            ? known.CountRule
+            : $"要確認({type.Encoding})";
 
     static string ElementName(FomDataType arrayType) => arrayType.ElementDataType + " (要素)";
 

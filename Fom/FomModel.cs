@@ -136,4 +136,32 @@ public sealed class FomModel
 
     /// <summary>Notes keyed by label, as referenced from notes="label1 label2" attributes.</summary>
     public Dictionary<string, FomNote> Notes { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Transportation types the FOM declares. Often empty — the RPR FOM leaves the section
+    /// self-closing — in which case <see cref="IsReliable"/> falls back to the HLA standard types.
+    /// </summary>
+    public Dictionary<string, FomTransportation> Transportations { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Whether a transportation delivers reliably. Prefers the FOM's own declaration so that a model
+    /// defining its own transportation types works; falls back to the two types the HLA standard
+    /// defines, and returns null when neither says — a caller must not guess in that case.
+    /// </summary>
+    public bool? IsReliable(string transportation)
+    {
+        if (string.IsNullOrEmpty(transportation)) return null;
+
+        if (Transportations.TryGetValue(transportation, out var declared) && declared.Reliable is bool value)
+        {
+            return value;
+        }
+
+        return transportation switch
+        {
+            "HLAreliable" => true,
+            "HLAbestEffort" => false,
+            _ => null
+        };
+    }
 }

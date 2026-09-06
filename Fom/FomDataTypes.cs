@@ -96,3 +96,17 @@ public sealed class FomNote
     public string Label { get; set; } = "";
     public string Semantics { get; set; } = "";
 }
+
+/// <summary>
+/// A transportation type from the &lt;transportations&gt; section. A FOM may declare its own, so
+/// reliability is read from the model rather than assumed from the name.
+/// </summary>
+public sealed class FomTransportation
+{
+    public string Name { get; set; } = "";
+
+    /// <summary>null when the FOM declares the type but not its reliability.</summary>
+    public bool? Reliable { get; set; }
+
+    public string Semantics { get; set; } = "";
+}
