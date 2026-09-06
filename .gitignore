@@ -14,3 +14,6 @@ RPR_FOM_v2.0_1516-2010.xml
 
 ## Generated ICD output
 *.xlsx
+
+## Claude Code guidance (local only)
+CLAUDE.md
