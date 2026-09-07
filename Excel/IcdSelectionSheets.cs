@@ -66,7 +66,11 @@ public static partial class IcdExporter
 
         index.FreezeHeader = true;
         index.AutoFilter = true;
-        ApplyWidths(index, 34, 12, 12, 12, 14, 20, 12, ProseWidth);
+        // ID / Port / Rate are blank for the reader to fill in, so fitting them to an empty
+        // column would leave nowhere to type. Everything else fits its content.
+        index.SetColumnWidth(2, 12);
+        index.SetColumnWidth(3, 12);
+        index.SetColumnWidth(4, 12);
         index.WrapColumn(8);
     }
 
@@ -136,8 +140,6 @@ public static partial class IcdExporter
 
         sheet.FreezeHeader = true;
         sheet.AutoFilter = true;
-        // Paths run long now that they carry the whole structure, so Name gets the width back.
-        ApplyWidths(sheet, 62, 34, 13, 26, 22, 24, ProseWidth);
         sheet.WrapColumn(7);
 
         var distinct = transportations.Distinct(StringComparer.Ordinal).ToList();
@@ -191,7 +193,6 @@ public static partial class IcdExporter
 
         sheet.FreezeHeader = true;
         sheet.AutoFilter = true;
-        ApplyWidths(sheet, 38, 30, 24, 13, 44, 12, 34, ProseWidth);
         sheet.WrapColumn(7);
         sheet.WrapColumn(8);
     }

@@ -8,9 +8,6 @@ namespace ICDgenerator.Excel;
 /// </summary>
 public static partial class IcdExporter
 {
-    /// <summary>Width given to columns holding prose.</summary>
-    internal const double ProseWidth = 80;
-
     /// <param name="selections">
     /// Classes to break out into the extraction sheets. The full parse result is always written
     /// regardless, so an empty selection simply omits those sheets.
@@ -60,8 +57,6 @@ public static partial class IcdExporter
         // Anything the parser could not take for granted belongs where the reader will see it.
         foreach (var warning in model.Warnings) sheet.AddRow("警告", warning);
 
-        sheet.SetColumnWidth(1, 26);
-        sheet.SetColumnWidth(2, ProseWidth);
         sheet.WrapColumn(2);
     }
 
@@ -91,9 +86,4 @@ public static partial class IcdExporter
     /// <summary>Bit width as a cell value: a number when fixed, otherwise the "可変" marker.</summary>
     internal static object? SizeCell(ResolvedType type) =>
         type.SizeInBits is int bits ? bits : type.SizeText;
-
-    internal static void ApplyWidths(XlsxSheet sheet, params double[] widths)
-    {
-        for (int i = 0; i < widths.Length; i++) sheet.SetColumnWidth(i + 1, widths[i]);
-    }
 }

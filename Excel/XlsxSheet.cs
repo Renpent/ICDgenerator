@@ -28,6 +28,16 @@ public sealed class XlsxSheet
     /// <summary>Puts filter dropdowns on row 1, spanning the used range.</summary>
     public bool AutoFilter { get; set; }
 
+    /// <summary>
+    /// Widest a fitted column may become. Prose runs to hundreds of characters and would otherwise
+    /// produce a column no one can read across; such columns are given <see cref="WrapColumn"/>
+    /// instead, and wrap at this width.
+    /// </summary>
+    public double MaxFittedWidth { get; set; } = 80;
+
+    /// <summary>Narrowest a fitted column may become, so an empty column is still usable.</summary>
+    public double MinFittedWidth { get; set; } = 6;
+
     public void AddHeader(params string[] cells) => _rows.Add((cells, true));
 
     /// <summary>Numeric values are written as numbers; anything else as an inline string.</summary>
@@ -64,13 +74,17 @@ public sealed class XlsxSheet
         sb.Append("</sheetView></sheetViews>");
         sb.Append("<sheetFormatPr defaultRowHeight=\"15\"/>");
 
-        if (_widths.Count > 0)
+        if (_rows.Count > 0)
         {
             sb.Append("<cols>");
-            foreach (var (column, width) in _widths.OrderBy(w => w.Key))
+            for (int column = 1; column <= columnCount; column++)
             {
+                double width = _widths.TryGetValue(column, out var fixedWidth)
+                    ? fixedWidth
+                    : FitWidth(column);
+
                 sb.Append(CultureInfo.InvariantCulture,
-                    $"<col min=\"{column}\" max=\"{column}\" width=\"{width}\" customWidth=\"1\"/>");
+                    $"<col min=\"{column}\" max=\"{column}\" width=\"{width:0.##}\" customWidth=\"1\"/>");
             }
             sb.Append("</cols>");
         }
@@ -114,6 +128,77 @@ public sealed class XlsxSheet
 
         return sb.Append("</worksheet>").ToString();
     }
+
+    /// <summary>
+    /// Width that fits the column's own content. There is no way to measure text without a font
+    /// library, so this counts characters the way Excel's width unit is defined — the width of a
+    /// digit in the default font — and treats a full-width character as two of them. Counting is
+    /// cheap enough to do over every cell; it is measuring that was slow when this used a
+    /// spreadsheet library.
+    /// </summary>
+    double FitWidth(int column)
+    {
+        double widest = 0;
+
+        foreach (var (cells, isHeader) in _rows)
+        {
+            if (column > cells.Length) continue;
+
+            double width = DisplayWidth(CellText(cells[column - 1]));
+
+            // The filter dropdown sits on top of the header text, so the header needs room for it.
+            if (isHeader && AutoFilter) width += 3;
+
+            widest = Math.Max(widest, width);
+        }
+
+        return Math.Clamp(widest + 1, MinFittedWidth, MaxFittedWidth);
+    }
+
+    static string CellText(object? value) => value switch
+    {
+        null => "",
+        bool b => b ? "TRUE" : "FALSE",
+        _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? ""
+    };
+
+    /// <summary>
+    /// Width in digit-widths, measured over the longest line. Semantics carry embedded newlines, and
+    /// counting the whole string would size a wrapped column to the sum of its lines.
+    /// </summary>
+    static double DisplayWidth(string text)
+    {
+        double widest = 0, line = 0;
+
+        foreach (char ch in text)
+        {
+            switch (ch)
+            {
+                case '\n': widest = Math.Max(widest, line); line = 0; break;
+                case '\r': break;
+                default: line += IsFullWidth(ch) ? 2 : 1; break;
+            }
+        }
+
+        return Math.Max(widest, line);
+    }
+
+    /// <summary>
+    /// Whether a character occupies two digit-widths. Covers the CJK and fullwidth blocks, which is
+    /// what the Japanese headers and notes in this workbook need; anything else counts as one.
+    /// </summary>
+    static bool IsFullWidth(char ch) =>
+        ch is >= 'ᄀ' and <= 'ᅟ'      // Hangul Jamo
+           or >= '⺀' and <= '〾'      // CJK radicals, Kangxi, CJK punctuation
+           or >= 'ぁ' and <= '㏿'      // Kana, Hangul Compatibility Jamo, CJK compat
+           or >= '㐀' and <= '䶿'      // CJK Extension A
+           or >= '一' and <= '鿿'      // CJK Unified Ideographs
+           or >= 'ꀀ' and <= '꓏'      // Yi
+           or >= '가' and <= '힣'      // Hangul syllables
+           or >= '豈' and <= '﫿'      // CJK Compatibility Ideographs
+           or >= '︰' and <= '﹯'      // CJK compatibility forms
+           or >= '＀' and <= '｠'      // Fullwidth forms
+           or >= '￠' and <= '￦';
 
     static void AppendCell(StringBuilder sb, string reference, object? value, int style)
     {

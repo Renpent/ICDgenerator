@@ -31,7 +31,6 @@ public static partial class IcdExporter
 
         sheet.FreezeHeader = true;
         sheet.AutoFilter = true;
-        ApplyWidths(sheet, 6, 34, 52, 50, 17, 15, 11, 20, 20, 7, 10, 40, ProseWidth);
         sheet.WrapColumn(12);
         sheet.WrapColumn(13);
     }
@@ -76,7 +75,6 @@ public static partial class IcdExporter
 
         sheet.FreezeHeader = true;
         sheet.AutoFilter = true;
-        ApplyWidths(sheet, 52, 8, 32, 50, 34, 14, 22, 9, 26, 15, 11, 50, ProseWidth);
         sheet.WrapColumn(12);
         sheet.WrapColumn(13);
     }
