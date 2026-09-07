@@ -1,4 +1,4 @@
-namespace ICDgenerator
+﻿namespace ICDgenerator
 {
     partial class Form1
     {
@@ -43,6 +43,7 @@ namespace ICDgenerator
             this.btnClearSelection = new System.Windows.Forms.Button();
             this.lblSelection = new System.Windows.Forms.Label();
             this.btnGenerate = new System.Windows.Forms.Button();
+            this.btnGenerateCpp = new System.Windows.Forms.Button();
             this.txtLog = new System.Windows.Forms.TextBox();
             ((System.ComponentModel.ISupportInitialize)(this.splitTrees)).BeginInit();
             this.splitTrees.Panel1.SuspendLayout();
@@ -190,13 +191,24 @@ namespace ICDgenerator
             // btnGenerate
             //
             this.btnGenerate.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
-            this.btnGenerate.Location = new System.Drawing.Point(688, 423);
+            this.btnGenerate.Location = new System.Drawing.Point(538, 423);
             this.btnGenerate.Name = "btnGenerate";
             this.btnGenerate.Size = new System.Drawing.Size(140, 30);
             this.btnGenerate.TabIndex = 9;
             this.btnGenerate.Text = "ICD生成";
             this.btnGenerate.UseVisualStyleBackColor = true;
             this.btnGenerate.Click += new System.EventHandler(this.btnGenerate_Click);
+            //
+            // btnGenerateCpp
+            //
+            this.btnGenerateCpp.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
+            this.btnGenerateCpp.Location = new System.Drawing.Point(688, 423);
+            this.btnGenerateCpp.Name = "btnGenerateCpp";
+            this.btnGenerateCpp.Size = new System.Drawing.Size(140, 30);
+            this.btnGenerateCpp.TabIndex = 10;
+            this.btnGenerateCpp.Text = "C++生成";
+            this.btnGenerateCpp.UseVisualStyleBackColor = true;
+            this.btnGenerateCpp.Click += new System.EventHandler(this.btnGenerateCpp_Click);
             //
             // txtLog
             //
@@ -208,13 +220,14 @@ namespace ICDgenerator
             this.txtLog.ReadOnly = true;
             this.txtLog.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
             this.txtLog.Size = new System.Drawing.Size(816, 160);
-            this.txtLog.TabIndex = 10;
+            this.txtLog.TabIndex = 11;
             //
             // Form1
             //
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(840, 633);
             this.Controls.Add(this.txtLog);
+            this.Controls.Add(this.btnGenerateCpp);
             this.Controls.Add(this.btnGenerate);
             this.Controls.Add(this.lblSelection);
             this.Controls.Add(this.btnClearSelection);
@@ -254,6 +267,7 @@ namespace ICDgenerator
         private System.Windows.Forms.Button btnClearSelection;
         private System.Windows.Forms.Label lblSelection;
         private System.Windows.Forms.Button btnGenerate;
+        private System.Windows.Forms.Button btnGenerateCpp;
         private System.Windows.Forms.TextBox txtLog;
     }
 }

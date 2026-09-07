@@ -17,6 +17,13 @@
     -->
     <!-- LogicalName is explicit so the lookup name does not move with RootNamespace. -->
     <EmbeddedResource Include="HLAstandardMIM.xml" LogicalName="ICDgenerator.HLAstandardMIM.xml" />
+
+    <!--
+      Hand-written C++ runtime for the generated codecs, copied out verbatim at generation time.
+      It lives as a real .h file rather than a string constant so that it can be compiled and
+      reviewed like the code it ships with.
+    -->
+    <EmbeddedResource Include="Cpp\Runtime\icd_codec.h" LogicalName="ICDgenerator.Cpp.Runtime.icd_codec.h" />
   </ItemGroup>
 
 </Project>

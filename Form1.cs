@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using ICDgenerator.Cpp;
 using ICDgenerator.Excel;
 using ICDgenerator.Fom;
 
@@ -345,11 +346,80 @@ namespace ICDgenerator
             }
         }
 
+        private async void btnGenerateCpp_Click(object sender, EventArgs e)
+        {
+            if (_model is null)
+            {
+                MessageBox.Show(this, "先にFOMファイルを読み込んでください。", "ICD Generator",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            var selections = CurrentSelections();
+            if (selections.Count == 0)
+            {
+                MessageBox.Show(this, "生成するクラスにチェックを入れてください。", "ICD Generator",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            using var dialog = new FolderBrowserDialog
+            {
+                Description = "C++ソースの出力先フォルダ",
+                UseDescriptionForTitle = true
+            };
+
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+            var outputPath = dialog.SelectedPath;
+            var model = _model;
+
+            SetBusy(true, "C++生成中...");
+            Log("");
+            Log($"C++出力先: {outputPath}");
+
+            try
+            {
+                var sw = Stopwatch.StartNew();
+                var result = await Task.Run(() =>
+                    new CppGenerator(model, new FomTypeResolver(model)).Generate(selections, outputPath));
+                var elapsed = sw.ElapsedMilliseconds;
+
+                Log($"C++生成  : {elapsed} ms / {result.Files.Count} ファイル");
+                foreach (var file in result.Files) Log("    " + file);
+                foreach (var warning in result.Warnings) Log("警告: " + warning);
+                Log("完了しました。");
+
+                lblStatus.Text = $"C++生成完了 ({elapsed} ms)";
+            }
+            catch (CppGenerationException ex)
+            {
+                // The generator refuses rather than emitting a layout it cannot vouch for, so this
+                // is an expected outcome for some FOMs and gets the reason, not a stack trace.
+                Log("生成できません: " + ex.Message);
+                lblStatus.Text = "生成できません";
+                MessageBox.Show(this, ex.Message, "ICD Generator",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            catch (Exception ex)
+            {
+                Log("エラー: " + ex.Message);
+                lblStatus.Text = "エラー";
+                MessageBox.Show(this, ex.Message, "ICD Generator",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                SetBusy(false);
+            }
+        }
+
         private void SetBusy(bool busy, string? status = null)
         {
             btnBrowse.Enabled = !busy;
             btnLoad.Enabled = !busy;
             btnGenerate.Enabled = !busy;
+            btnGenerateCpp.Enabled = !busy;
             btnSelectPublishable.Enabled = !busy;
             btnClearSelection.Enabled = !busy;
             UseWaitCursor = busy;
