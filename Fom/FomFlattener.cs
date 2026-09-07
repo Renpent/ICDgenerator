@@ -9,6 +9,8 @@ namespace ICDgenerator.Fom;
 /// <param name="Amount">
 /// How many times this value occurs: 1, a literal count, or an expression naming the count rows that
 /// decide it — never a bare "variable", so a reader always has something concrete to parse by.
+/// `Σ(path)` means the total is the sum of the values in that count row, which is what a dynamic
+/// array nested inside another repetition produces; a product would overstate a ragged shape.
 /// </param>
 /// <param name="Selector">
 /// Discriminant values that must hold for this row to appear at all. Empty means unconditional.
@@ -83,7 +85,7 @@ public sealed class FomFlattener
         int depth, List<FlatField> rows, HashSet<string> visiting, string lengthRule = "")
     {
         var resolved = _resolver.Resolve(dataType);
-        _model.DataTypes.TryGetValue(dataType, out var type);
+        _model.TryGetDataType(dataType, out var type);
         var kind = type?.Kind ?? resolved.Kind;
 
         bool composite = kind is FomDataTypeKind.FixedRecord or FomDataTypeKind.VariantRecord
@@ -150,8 +152,9 @@ public sealed class FomFlattener
         int depth, List<FlatField> rows, HashSet<string> visiting)
     {
         var elementCount = type.Cardinality;
+        bool dynamic = !IsFixedCardinality(type);
 
-        if (!IsFixedCardinality(type))
+        if (dynamic)
         {
             // The count is a field of the UDP layout in its own right, whether or not HLA carries it.
             elementCount = CountFieldName(path);
@@ -159,8 +162,15 @@ public sealed class FomFlattener
                 selector, $"{path} の要素数。", CountRuleOf(type)));
         }
 
-        var elementAmount = Combine(amount, elementCount, "*");
-        _model.DataTypes.TryGetValue(type.ElementDataType, out var element);
+        // A dynamic array inside anything that repeats has one count *per enclosing occurrence*, and
+        // those counts differ from one to the next. Multiplying them would claim a rectangle where
+        // the wire holds a ragged one — for A_Count=2 with inner counts 3 and 1 the total is 4, not
+        // 2*3 — so the total is written as a sum over the count rows instead of a product.
+        var elementAmount = dynamic && Repeats(amount)
+            ? $"Σ({elementCount})"
+            : Combine(amount, elementCount, "*");
+
+        _model.TryGetDataType(type.ElementDataType, out var element);
 
         if (element is not null && element.Kind is FomDataTypeKind.FixedRecord
             or FomDataTypeKind.VariantRecord or FomDataTypeKind.Array)
@@ -189,6 +199,9 @@ public sealed class FomFlattener
 
         return outer + separator + inner;
     }
+
+    /// <summary>Whether an occurrence count means "more than once", so nested counts cannot multiply.</summary>
+    static bool Repeats(string amount) => amount.Length > 0 && amount != "1";
 
     static bool IsFixedCardinality(FomDataType type) => int.TryParse(type.Cardinality, out _);
 

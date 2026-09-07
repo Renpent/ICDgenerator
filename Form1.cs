@@ -66,7 +66,9 @@ namespace ICDgenerator
                 Log($"データ型数           : {model.DataTypes.Count}");
                 Log($"列挙値数             : {model.DataTypes.Values.Sum(t => t.Enumerators.Count)}");
                 Log($"注記数               : {model.Notes.Count}");
+                Log($"HLA標準MIMの型数     : {model.StandardDataTypes.Count}");
                 Log("");
+                LogStructureDiagnostics(model);
                 foreach (var warning in model.Warnings) Log("警告: " + warning);
                 if (model.Warnings.Count > 0) Log("");
                 Log("抽出したいクラスにチェックを入れて「ICD生成」を押してください。");
@@ -87,6 +89,61 @@ namespace ICDgenerator
                 SetBusy(false);
                 UpdateSelectionLabel();
             }
+        }
+
+        /// <summary>
+        /// Reports the two structures that decide how hard C++ generation from this FOM will be:
+        /// a dynamic array nested inside another repetition (element offsets become runtime values,
+        /// and occurrence counts stop multiplying), and variant records (the layout branches on a
+        /// discriminant). Both are legal and both are handled in the ICD; this only says whether a
+        /// given FOM actually uses them, which is otherwise tedious to find out.
+        /// </summary>
+        void LogStructureDiagnostics(FomModel model)
+        {
+            var resolver = new FomTypeResolver(model);
+            var flattener = new FomFlattener(model, resolver);
+
+            int nested = 0, variant = 0, maxCounts = 0;
+            string nestedExample = "", variantExample = "";
+
+            foreach (var cls in model.AllObjectClasses.Where(c => c.IsPublishable))
+            {
+                Inspect(cls.FullName, cls.AllAttributes.Select(a => (a.Name, a.DataType, a.Semantics)));
+            }
+            foreach (var cls in model.AllInteractionClasses.Where(c => c.IsPublishable))
+            {
+                Inspect(cls.FullName, cls.AllParameters.Select(p => (p.Name, p.DataType, p.Semantics)));
+            }
+
+            void Inspect(string fullName, IEnumerable<(string Name, string Type, string Semantics)> members)
+            {
+                bool hasNested = false, hasVariant = false;
+                int counts = 0;
+
+                foreach (var member in members)
+                {
+                    foreach (var field in flattener.Flatten(member.Name, member.Type, member.Semantics))
+                    {
+                        if (field.Amount.StartsWith('Σ')) hasNested = true;
+                        if (field.LengthRule == "判別子") hasVariant = true;
+                        if (field.Path.EndsWith("_Count", StringComparison.Ordinal)) counts++;
+                    }
+                }
+
+                if (hasNested && nested++ == 0) nestedExample = fullName;
+                if (hasVariant && variant++ == 0) variantExample = fullName;
+                maxCounts = Math.Max(maxCounts, counts);
+            }
+
+            Log("--- 構造の診断（C++生成の難度に効くもの）---");
+            Log(nested == 0
+                ? "入れ子の可変長配列 : なし"
+                : $"入れ子の可変長配列 : {nested} クラス (例: {nestedExample})");
+            Log(variant == 0
+                ? "可変レコード       : なし"
+                : $"可変レコード       : {variant} クラス (例: {variantExample})");
+            Log($"動的配列の最大本数 : {maxCounts}");
+            Log("");
         }
 
         void PopulateTrees(FomModel model)
