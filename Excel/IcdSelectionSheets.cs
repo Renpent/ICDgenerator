@@ -12,8 +12,7 @@ public sealed record IcdSelection(string FullName, bool IsInteraction)
 public static partial class IcdExporter
 {
     /// <summary>One line of the 抽出概要 index.</summary>
-    sealed record IndexRow(string Display, object? Size, string Transportation,
-        string Reliability, string Description)
+    sealed record IndexRow(string Display, object? Size, string Description)
     {
         public string SheetName { get; init; } = "";
     }
@@ -33,8 +32,7 @@ public static partial class IcdExporter
         var flattener = new FomFlattener(model, resolver);
         var index = workbook.AddSheet("抽出概要");
 
-        index.AddHeader("Name", "ID", "Port", "Rate", "Size(Bytes)",
-                        "Transportation", "信頼配送", "Descripter");
+        index.AddHeader("Name", "ID", "Port", "Rate", "Size(Bytes)", "Descripter");
 
         // Sheets must exist before the index can link to them, and the index must come first in the
         // workbook, so add the index sheet up front and fill in its rows as the details are built.
@@ -59,8 +57,7 @@ public static partial class IcdExporter
         for (int i = 0; i < rows.Count; i++)
         {
             var row = rows[i];
-            index.AddRow(row.Display, null, null, null, row.Size,
-                row.Transportation, row.Reliability, row.Description);
+            index.AddRow(row.Display, null, null, null, row.Size, row.Description);
             index.LinkToSheet(i + 2, 1, row.SheetName);
         }
 
@@ -71,7 +68,7 @@ public static partial class IcdExporter
         index.SetColumnWidth(2, 12);
         index.SetColumnWidth(3, 12);
         index.SetColumnWidth(4, 12);
-        index.WrapColumn(8);
+        index.WrapColumn(6);
     }
 
     static IndexRow WriteDetailSheet(XlsxSheet sheet, FomModel model, FomTypeResolver resolver,
@@ -85,8 +82,6 @@ public static partial class IcdExporter
         // that wants them back only has to render them.
         sheet.AddHeader("Name", "Type", "Size(Bytes)", "Amount", "長さ決定", "Units", "Description");
 
-        // Interactions declare transportation once for the class; object classes declare it per
-        // attribute. Carrying it with each member covers both without assuming they agree.
         var interaction = selection.IsInteraction
             ? model.AllInteractionClasses.First(c => c.FullName == selection.FullName)
             : null;
@@ -95,19 +90,14 @@ public static partial class IcdExporter
             : null;
 
         var members = interaction is not null
-            ? interaction.AllParameters.Select(p =>
-                (p.Name, p.DataType, p.Semantics, interaction.Transportation, interaction.Order))
-            : objectClass!.AllAttributes.Select(a =>
-                (a.Name, a.DataType, a.Semantics, a.Transportation, a.Order));
+            ? interaction.AllParameters.Select(p => (p.Name, p.DataType, p.Semantics))
+            : objectClass!.AllAttributes.Select(a => (a.Name, a.DataType, a.Semantics));
 
         int totalBytes = 0;
         bool fixedSize = true;
-        var transportations = new List<string>();
 
-        foreach (var (name, dataType, semantics, transportation, order) in members)
+        foreach (var (name, dataType, semantics) in members)
         {
-            if (transportation.Length > 0) transportations.Add(transportation);
-
             foreach (var field in flattener.Flatten(name, dataType, semantics))
             {
                 if (model.TryGetDataType(field.TypeName, out var fieldType)
@@ -142,16 +132,9 @@ public static partial class IcdExporter
         sheet.AutoFilter = true;
         sheet.WrapColumn(7);
 
-        var distinct = transportations.Distinct(StringComparer.Ordinal).ToList();
-
         return new IndexRow(
             selection.ShortName,
             fixedSize ? totalBytes : "可変",
-            // One value for the class where the members agree; say so rather than pick one when not.
-            distinct.Count switch { 0 => "", 1 => distinct[0], _ => "混在" },
-            distinct.Count == 1 ? ReliabilityText(model, distinct[0])
-                : distinct.Any(t => model.IsReliable(t) == true) ? "一部要"
-                : "",
             interaction?.Semantics ?? objectClass!.Semantics);
     }
 
@@ -197,15 +180,4 @@ public static partial class IcdExporter
         sheet.WrapColumn(8);
     }
 
-    /// <summary>
-    /// Reads reliability off the model, so a FOM declaring its own transportation types is honoured.
-    /// Reports 不明 rather than guessing when neither the FOM nor the HLA standard names say.
-    /// </summary>
-    static string ReliabilityText(FomModel model, string transportation) =>
-        model.IsReliable(transportation) switch
-        {
-            true => "要",
-            false => "不要",
-            _ => transportation.Length > 0 ? "不明" : ""
-        };
 }

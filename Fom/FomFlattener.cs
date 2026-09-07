@@ -33,10 +33,22 @@ public sealed record FlatField(
 /// </summary>
 public sealed class FomFlattener
 {
-    /// <summary>Width of the element count that precedes a variable array, per HLAvariableArray.</summary>
-    const int CountBytes = 4;
+    /// <summary>
+    /// The element count that precedes a variable array in the UDP layout.
+    ///
+    /// Deliberately not HLA's own prefix. IEEE 1516-2010 gives HLAvariableArray a signed 32-bit
+    /// big-endian count, but this row describes the datagram, not HLA: big-endian would contradict
+    /// the layout's byte order, a count has no use for a sign, and for the RPRlengthlessArray types
+    /// HLA carries no count at all — the gateway computes it, which is what 長さ決定 says. Naming it
+    /// after an HLA type would claim a provenance the row does not have.
+    ///
+    /// 16 bits because a datagram caps the count long before it overflows: the widest case is an
+    /// array of single-byte elements, 1,400 of which fit. 8 bits does not survive that — SignalData
+    /// alone is audio payload running to hundreds of bytes.
+    /// </summary>
+    const int CountBytes = 2;
 
-    const string CountType = "HLAinteger32BE";
+    const string CountType = "uint16";
 
     /// <summary>Deep enough for any real FOM; a backstop against pathological nesting.</summary>
     const int MaxDepth = 12;
