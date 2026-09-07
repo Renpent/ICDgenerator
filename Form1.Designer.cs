@@ -227,7 +227,7 @@ namespace ICDgenerator
             this.Controls.Add(this.lblFomPath);
             this.MinimumSize = new System.Drawing.Size(760, 560);
             this.Name = "Form1";
-            this.Text = "ICD Generator - RPR FOM";
+            this.Text = "ICDgenerator";
             this.splitTrees.Panel1.ResumeLayout(false);
             this.splitTrees.Panel2.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)(this.splitTrees)).EndInit();

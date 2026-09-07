@@ -74,8 +74,12 @@ public static partial class IcdExporter
         FomFlattener flattener, IcdSelection selection,
         IDictionary<string, SortedSet<string>> enumUsage)
     {
-        sheet.AddHeader("Name", "Type", "Size(Bytes)", "Amount", "長さ決定", "Units", "選択子",
-                        "Transportation", "信頼配送", "Order", "Description");
+        // Only what the reader needs to lay bytes out. Transportation, 信頼配送 and Order describe
+        // how a member is delivered rather than what it looks like on the wire, and the class-wide
+        // value on 抽出概要 answers that; 選択子 stays out because the deployment FOM has no variant
+        // records, so it would be blank on every row. FlatField still carries all four, so a sheet
+        // that wants them back only has to render them.
+        sheet.AddHeader("Name", "Type", "Size(Bytes)", "Amount", "長さ決定", "Units", "Description");
 
         // Interactions declare transportation once for the class; object classes declare it per
         // attribute. Carrying it with each member covers both without assuming they agree.
@@ -100,7 +104,6 @@ public static partial class IcdExporter
         {
             if (transportation.Length > 0) transportations.Add(transportation);
 
-            bool topRow = true;
             foreach (var field in flattener.Flatten(name, dataType, semantics))
             {
                 if (model.TryGetDataType(field.TypeName, out var fieldType)
@@ -113,8 +116,6 @@ public static partial class IcdExporter
                     users.Add(selection.ShortName);
                 }
 
-                // Transportation applies to the member as a whole, so it is stated once on its top
-                // row rather than repeated down the expansion.
                 sheet.AddRow(
                     field.Path,
                     field.TypeName,
@@ -124,13 +125,7 @@ public static partial class IcdExporter
                     // The FOM writes "NA" where a type has no units; that placeholder is noise in a
                     // working layout sheet, though データ型定義 still reproduces it verbatim.
                     field.Units == "NA" ? "" : field.Units,
-                    field.Selector,
-                    topRow ? transportation : "",
-                    topRow ? ReliabilityText(model, transportation) : "",
-                    topRow ? order : "",
                     field.Semantics);
-
-                topRow = false;
             }
 
             // The class total comes from the member's own resolved width, not from the expanded
@@ -142,8 +137,8 @@ public static partial class IcdExporter
         sheet.FreezeHeader = true;
         sheet.AutoFilter = true;
         // Paths run long now that they carry the whole structure, so Name gets the width back.
-        ApplyWidths(sheet, 62, 34, 13, 26, 22, 24, 24, 17, 10, 11, ProseWidth);
-        sheet.WrapColumn(11);
+        ApplyWidths(sheet, 62, 34, 13, 26, 22, 24, ProseWidth);
+        sheet.WrapColumn(7);
 
         var distinct = transportations.Distinct(StringComparer.Ordinal).ToList();
 
