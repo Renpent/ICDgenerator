@@ -29,31 +29,6 @@ public sealed record ResolvedType(
 /// </summary>
 public sealed class FomTypeResolver
 {
-    /// <summary>
-    /// Widths of the HLA basic types. These are declared in the standard MIM rather than in the FOM
-    /// itself — the RPR FOM's basicDataRepresentations section only defines the four RPRunsignedInteger
-    /// types — so referencing them without this table leaves most attributes unresolvable.
-    /// </summary>
-    static readonly Dictionary<string, int> MimBasicTypeSizes = new(StringComparer.Ordinal)
-    {
-        ["HLAoctet"] = 8,
-        ["HLAbyte"] = 8,
-        ["HLAASCIIchar"] = 8,
-        ["HLAoctetPairBE"] = 16,
-        ["HLAoctetPairLE"] = 16,
-        ["HLAunicodeChar"] = 16,
-        ["HLAinteger16BE"] = 16,
-        ["HLAinteger16LE"] = 16,
-        ["HLAinteger32BE"] = 32,
-        ["HLAinteger32LE"] = 32,
-        ["HLAinteger64BE"] = 64,
-        ["HLAinteger64LE"] = 64,
-        ["HLAfloat32BE"] = 32,
-        ["HLAfloat32LE"] = 32,
-        ["HLAfloat64BE"] = 64,
-        ["HLAfloat64LE"] = 64
-    };
-
     readonly FomModel _model;
     readonly Dictionary<string, ResolvedType> _cache = new(StringComparer.Ordinal);
 
@@ -87,12 +62,11 @@ public sealed class FomTypeResolver
 
     ResolvedType ResolveCore(string typeName, HashSet<string> visiting)
     {
-        if (!_model.DataTypes.TryGetValue(typeName, out var type))
+        // The FOM's own declaration wins; the standard MIM supplies the HLA names a FOM references
+        // without defining — HLAoctet, HLAfloat32BE, HLAASCIIchar and the rest.
+        if (!_model.TryGetDataType(typeName, out var type))
         {
-            // Not in the FOM: it is either a MIM basic type or genuinely undefined.
-            return MimBasicTypeSizes.TryGetValue(typeName, out var mimSize)
-                ? new ResolvedType(typeName, FomDataTypeKind.Basic, typeName, mimSize, "", "", IsKnown: true)
-                : new ResolvedType(typeName, FomDataTypeKind.Unknown, "", null, "", "", IsKnown: false);
+            return new ResolvedType(typeName, FomDataTypeKind.Unknown, "", null, "", "", IsKnown: false);
         }
 
         switch (type.Kind)

@@ -25,9 +25,22 @@ public sealed class FomParser
         _model = model;
     }
 
-    public static FomModel Parse(string path)
+    /// <summary>Name of the embedded standard MIM, as MSBuild builds the resource identifier.</summary>
+    const string StandardMimResource = "ICDgenerator.HLAstandardMIM.xml";
+
+    /// <summary>
+    /// The HLA standard MIM's data types, read once. Embedded in the assembly so a deployment stays
+    /// a single exe and cannot be separated from it.
+    /// </summary>
+    static readonly Lazy<IReadOnlyDictionary<string, FomDataType>> StandardDataTypes =
+        new(LoadStandardDataTypes);
+
+    public static FomModel Parse(string path) => Parse(XDocument.Load(path), attachStandardTypes: true);
+
+    public static FomModel Parse(Stream stream) => Parse(XDocument.Load(stream), attachStandardTypes: true);
+
+    static FomModel Parse(XDocument doc, bool attachStandardTypes)
     {
-        var doc = XDocument.Load(path);
         var root = doc.Root
             ?? throw new InvalidDataException("XML has no root element.");
 
@@ -51,7 +64,42 @@ public sealed class FomParser
         var parser = new FomParser(ns, model);
         parser.ParseModel(root);
         parser.ReportUnhandled();
+
+        if (attachStandardTypes)
+        {
+            model.StandardDataTypes = StandardDataTypes.Value;
+            if (model.StandardDataTypes.Count == 0)
+            {
+                model.Warnings.Add(
+                    "HLA標準MIMを読み込めませんでした。FOMが宣言していないHLA標準の型" +
+                    "(HLAoctet, HLAfloat32BE など) はサイズ不明として扱われます。");
+            }
+        }
+
         return model;
+    }
+
+    /// <summary>
+    /// Reads the embedded standard MIM through the ordinary parse path — it is itself an
+    /// &lt;objectModel&gt;, so nothing here is special-cased. Its MOM classes are discarded; only the
+    /// data types are kept. Failure is reported as a warning on the FOM being parsed rather than
+    /// thrown, so a broken resource degrades to "sizes unknown" instead of stopping the tool.
+    /// </summary>
+    static IReadOnlyDictionary<string, FomDataType> LoadStandardDataTypes()
+    {
+        try
+        {
+            using var stream = typeof(FomParser).Assembly
+                .GetManifestResourceStream(StandardMimResource);
+
+            if (stream is null) return new Dictionary<string, FomDataType>(StringComparer.Ordinal);
+
+            return Parse(XDocument.Load(stream), attachStandardTypes: false).DataTypes;
+        }
+        catch (Exception)
+        {
+            return new Dictionary<string, FomDataType>(StringComparer.Ordinal);
+        }
     }
 
     void ParseModel(XElement root)

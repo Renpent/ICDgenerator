@@ -134,6 +134,24 @@ public sealed class FomModel
     /// <summary>Every declared data type, keyed by name. Types reference each other by name only.</summary>
     public Dictionary<string, FomDataType> DataTypes { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Data types from the HLA standard MIM, used only for names the FOM itself does not declare.
+    /// A FOM references types such as HLAoctet and HLAASCIIchar without defining them, because the
+    /// standard already does; the MIM is shipped alongside so those resolve from the standard's own
+    /// declaration rather than from a table transcribed by hand.
+    ///
+    /// The FOM always wins: a model that redefines an HLA name is taken at its word.
+    /// </summary>
+    public IReadOnlyDictionary<string, FomDataType> StandardDataTypes { get; set; }
+        = new Dictionary<string, FomDataType>(StringComparer.Ordinal);
+
+    /// <summary>The FOM's own declaration if it has one, otherwise the standard MIM's.</summary>
+    public bool TryGetDataType(string name, out FomDataType type)
+    {
+        if (DataTypes.TryGetValue(name, out type!)) return true;
+        return StandardDataTypes.TryGetValue(name, out type!);
+    }
+
     /// <summary>Notes keyed by label, as referenced from notes="label1 label2" attributes.</summary>
     public Dictionary<string, FomNote> Notes { get; } = new(StringComparer.Ordinal);
 

@@ -8,4 +8,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!--
+      The HLA standard MIM declares the basic types a FOM references without defining (HLAoctet,
+      HLAfloat32BE, HLAASCIIchar …). Embedding it keeps a deployment a single exe, so the sizes
+      cannot be separated from the tool that needs them.
+      Reprinted with permission from IEEE 1516.1(TM)-2010; the file carries its own licence header.
+    -->
+    <!-- LogicalName is explicit so the lookup name does not move with RootNamespace. -->
+    <EmbeddedResource Include="HLAstandardMIM.xml" LogicalName="ICDgenerator.HLAstandardMIM.xml" />
+  </ItemGroup>
+
 </Project>

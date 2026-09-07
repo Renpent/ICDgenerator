@@ -103,7 +103,7 @@ public static partial class IcdExporter
             bool topRow = true;
             foreach (var field in flattener.Flatten(name, dataType, semantics))
             {
-                if (model.DataTypes.TryGetValue(field.TypeName, out var fieldType)
+                if (model.TryGetDataType(field.TypeName, out var fieldType)
                     && fieldType.Kind == FomDataTypeKind.Enumerated)
                 {
                     if (!enumUsage.TryGetValue(field.TypeName, out var users))
@@ -174,7 +174,7 @@ public static partial class IcdExporter
 
         foreach (var (typeName, users) in enumUsage)
         {
-            if (!model.DataTypes.TryGetValue(typeName, out var type)) continue;
+            if (!model.TryGetDataType(typeName, out var type)) continue;
 
             var resolved = resolver.Resolve(typeName);
             var usedBy = string.Join(", ", users);
