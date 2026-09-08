@@ -111,7 +111,7 @@
             this.txtTypePrefix.Name = "txtTypePrefix";
             this.txtTypePrefix.Size = new System.Drawing.Size(180, 23);
             this.txtTypePrefix.TabIndex = 13;
-            this.txtTypePrefix.Text = "ICD_";
+            this.txtTypePrefix.Text = "";
             //
             // lblStatus
             //

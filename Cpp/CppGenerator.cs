@@ -44,12 +44,13 @@ public sealed class CppGenerator
     /// Prepended to every shared FOM data type — enums, records, array typedefs — but not to the
     /// class structs, which are ICD records with no counterpart in an HLA toolkit.
     ///
-    /// The point is substitutability. An HLA code generator emits the same FOM types under the same
-    /// names, so a project that already has them can strip or rewrite this prefix and point the
-    /// generated codecs at its own definitions. Keeping it off the class structs means one
-    /// search-and-replace touches exactly the types that have a counterpart.
+    /// Empty by default: the generated types are the ones to use unless a project already has the
+    /// same FOM types from its HLA toolkit. Setting a prefix makes them substitutable — strip or
+    /// rewrite it and the codecs point at those definitions instead — and keeping it off the class
+    /// structs means one search-and-replace touches exactly the types that have a counterpart.
+    /// Nothing else in the output may start with the chosen token.
     /// </summary>
-    public string TypePrefix { get; set; } = "ICD_";
+    public string TypePrefix { get; set; } = "";
 
     readonly FomModel _model;
     readonly FomTypeResolver _resolver;
@@ -272,9 +273,15 @@ public sealed class CppGenerator
             return PrimitiveOf(type) ?? throw new CppGenerationException($"{typeName} を型に対応付けられません。");
         }
 
-        return _typeNames.TryGetValue(typeName, out var name)
-            ? name
-            : throw new CppGenerationException($"{typeName} の識別子が決まっていません。");
+        if (!_typeNames.TryGetValue(typeName, out var name))
+        {
+            throw new CppGenerationException($"{typeName} の識別子が決まっていません。");
+        }
+
+        // An enum is wrapped in a namespace of the same name, so the type is Name::Name. That is
+        // the shape an HLA toolkit's C++03-era generator produces, and matching it lets the two
+        // sets of headers be used interchangeably.
+        return type.Kind == FomDataTypeKind.Enumerated ? $"{name}::{name}" : name;
     }
 
     /// <summary>
@@ -397,6 +404,16 @@ public sealed class CppGenerator
     static string Units(FomDataType type) =>
         type.Units.Length > 0 && type.Units != "NA" ? $"  [{type.Units}]" : "";
 
+    /// <summary>
+    /// An enum goes inside a namespace of its own name, so the type is spelled Name::Name and the
+    /// enumerators Name::Value. That is the shape a C++03-era HLA generator produces for a scoped
+    /// enumeration, and matching it lets the two sets of headers stand in for each other.
+    ///
+    /// The codecs go inside that namespace too, and they must: the enum's only associated namespace
+    /// for argument-dependent lookup is the one it is declared in, so overloads left outside would
+    /// be invisible to the container templates. Their own calls are qualified for the same reason —
+    /// the primitive codecs are not visible unqualified from in there.
+    /// </summary>
     void WriteEnum(StringBuilder header, FomDataType type)
     {
         var name = _typeNames[type.Name];
@@ -408,7 +425,10 @@ public sealed class CppGenerator
             name, _result.Warnings);
 
         header.AppendLine($"/// FOM: {type.Name}");
-        header.AppendLine($"enum class {name} : {underlying} {{");
+        header.AppendLine($"/// 型として使うときは {name}::{name}、値は {name}::<列挙子名>。");
+        header.AppendLine($"namespace {name} {{");
+        header.AppendLine();
+        header.AppendLine($"enum {name} : {underlying} {{");
 
         // Two enumerators may share a value in a FOM; C++ allows that, so they are emitted as-is.
         foreach (var enumerator in type.Enumerators)
@@ -424,21 +444,23 @@ public sealed class CppGenerator
         // and refusing one would drop a record that is otherwise intact.
         header.AppendLine($"inline icd::Result decode(icd::Reader& r, {name}& v) {{");
         header.AppendLine($"    {underlying} raw = 0;");
-        header.AppendLine("    icd::Result rc = decode(r, raw);");
+        header.AppendLine("    icd::Result rc = icd::decode(r, raw);");
         header.AppendLine("    if (rc != icd::Result::Ok) return rc;");
         header.AppendLine($"    v = static_cast<{name}>(raw);");
         header.AppendLine("    return icd::Result::Ok;");
         header.AppendLine("}");
         header.AppendLine();
         header.AppendLine($"inline void encode(icd::Writer& w, {name} v) {{");
-        header.AppendLine($"    encode(w, static_cast<{underlying}>(v));");
+        header.AppendLine($"    icd::encode(w, static_cast<{underlying}>(v));");
         header.AppendLine("}");
         header.AppendLine();
         header.AppendLine($"inline std::size_t encodedSize({name}) {{ return {width}; }}");
         header.AppendLine();
+        header.AppendLine($"}}  // namespace {name}");
+        header.AppendLine();
         header.AppendLine($"}}  // namespace {Namespace}");
         header.AppendLine("namespace icd {");
-        header.AppendLine($"template <> struct MinSize<{Namespace}::{name}> {{ enum : size_t {{ value = {width} }}; }};");
+        header.AppendLine($"template <> struct MinSize<{Namespace}::{name}::{name}> {{ enum : size_t {{ value = {width} }}; }};");
         header.AppendLine("}");
         header.AppendLine($"namespace {Namespace} {{");
         header.AppendLine();
