@@ -426,11 +426,14 @@ namespace ICDgenerator
             try
             {
                 var sw = Stopwatch.StartNew();
+                var prefix = txtTypePrefix.Text.Trim();
                 var result = await Task.Run(() =>
-                    new CppGenerator(model, new FomTypeResolver(model)).Generate(selections, outputPath));
+                    new CppGenerator(model, new FomTypeResolver(model)) { TypePrefix = prefix }
+                        .Generate(selections, outputPath));
                 var elapsed = sw.ElapsedMilliseconds;
 
-                Log($"C++生成  : {elapsed} ms / {result.Files.Count} ファイル");
+                Log($"C++生成  : {elapsed} ms / {result.Files.Count} ファイル" +
+                    (prefix.Length > 0 ? $" / 型接頭辞 {prefix}" : " / 型接頭辞なし"));
                 foreach (var file in result.Files) Log("    " + file);
                 foreach (var warning in result.Warnings) Log("警告: " + warning);
                 Log("完了しました。");
@@ -466,6 +469,7 @@ namespace ICDgenerator
             btnGenerate.Enabled = !busy;
             btnGenerateCpp.Enabled = !busy;
             btnArrayLimits.Enabled = !busy;
+            txtTypePrefix.Enabled = !busy;
             btnSelectPublishable.Enabled = !busy;
             btnClearSelection.Enabled = !busy;
             UseWaitCursor = busy;

@@ -8,8 +8,12 @@
 // host's own byte order and avoids unaligned access, and compilers fold the pattern back into a
 // single load. If a layout ever needs big-endian, regenerate — do not add an #ifdef.
 
-#ifndef ICD_CODEC_H
-#define ICD_CODEC_H
+// Identifiers here deliberately avoid the prefix that generated type names carry. That prefix exists
+// so a project can search-and-replace it and point these codecs at its own HLA-generated type
+// definitions; an include guard or macro caught by that replace would be a puzzling breakage, so the
+// token appears nowhere in this file.
+#ifndef ICDCODEC_H
+#define ICDCODEC_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -197,7 +201,7 @@ struct MinSize<std::array<T, N> > {
 // Primitives
 // ---------------------------------------------------------------------------
 
-#define ICD_PRIMITIVE(TYPE, WIDTH, LOAD, STORE)                       \
+#define ICDCODEC_PRIMITIVE(TYPE, WIDTH, LOAD, STORE)                       \
     inline Result decode(Reader& r, TYPE& v) {                        \
         const unsigned char* p = r.take(WIDTH);                       \
         if (!p) return Result::Truncated;                             \
@@ -210,18 +214,18 @@ struct MinSize<std::array<T, N> > {
     }                                                                 \
     inline size_t encodedSize(TYPE) { return WIDTH; }
 
-ICD_PRIMITIVE(uint8_t, 1, loadU8, storeU8)
-ICD_PRIMITIVE(uint16_t, 2, loadU16, storeU16)
-ICD_PRIMITIVE(uint32_t, 4, loadU32, storeU32)
-ICD_PRIMITIVE(uint64_t, 8, loadU64, storeU64)
-ICD_PRIMITIVE(int8_t, 1, loadU8, storeU8)
-ICD_PRIMITIVE(int16_t, 2, loadU16, storeU16)
-ICD_PRIMITIVE(int32_t, 4, loadU32, storeU32)
-ICD_PRIMITIVE(int64_t, 8, loadU64, storeU64)
-ICD_PRIMITIVE(float, 4, loadF32, storeF32)
-ICD_PRIMITIVE(double, 8, loadF64, storeF64)
+ICDCODEC_PRIMITIVE(uint8_t, 1, loadU8, storeU8)
+ICDCODEC_PRIMITIVE(uint16_t, 2, loadU16, storeU16)
+ICDCODEC_PRIMITIVE(uint32_t, 4, loadU32, storeU32)
+ICDCODEC_PRIMITIVE(uint64_t, 8, loadU64, storeU64)
+ICDCODEC_PRIMITIVE(int8_t, 1, loadU8, storeU8)
+ICDCODEC_PRIMITIVE(int16_t, 2, loadU16, storeU16)
+ICDCODEC_PRIMITIVE(int32_t, 4, loadU32, storeU32)
+ICDCODEC_PRIMITIVE(int64_t, 8, loadU64, storeU64)
+ICDCODEC_PRIMITIVE(float, 4, loadF32, storeF32)
+ICDCODEC_PRIMITIVE(double, 8, loadF64, storeF64)
 
-#undef ICD_PRIMITIVE
+#undef ICDCODEC_PRIMITIVE
 
 // ---------------------------------------------------------------------------
 // Containers
@@ -418,4 +422,4 @@ private:
 
 }  // namespace icd
 
-#endif  // ICD_CODEC_H
+#endif  // ICDCODEC_H

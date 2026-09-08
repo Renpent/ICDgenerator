@@ -45,6 +45,8 @@
             this.btnGenerate = new System.Windows.Forms.Button();
             this.btnGenerateCpp = new System.Windows.Forms.Button();
             this.btnArrayLimits = new System.Windows.Forms.Button();
+            this.lblTypePrefix = new System.Windows.Forms.Label();
+            this.txtTypePrefix = new System.Windows.Forms.TextBox();
             this.txtLog = new System.Windows.Forms.TextBox();
             ((System.ComponentModel.ISupportInitialize)(this.splitTrees)).BeginInit();
             this.splitTrees.Panel1.SuspendLayout();
@@ -92,6 +94,24 @@
             this.btnLoad.Text = "読み込み";
             this.btnLoad.UseVisualStyleBackColor = true;
             this.btnLoad.Click += new System.EventHandler(this.btnLoad_Click);
+            //
+            // lblTypePrefix
+            //
+            this.lblTypePrefix.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.lblTypePrefix.AutoSize = true;
+            this.lblTypePrefix.Location = new System.Drawing.Point(560, 53);
+            this.lblTypePrefix.Name = "lblTypePrefix";
+            this.lblTypePrefix.TabIndex = 12;
+            this.lblTypePrefix.Text = "C++型接頭辞:";
+            //
+            // txtTypePrefix
+            //
+            this.txtTypePrefix.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.txtTypePrefix.Location = new System.Drawing.Point(648, 49);
+            this.txtTypePrefix.Name = "txtTypePrefix";
+            this.txtTypePrefix.Size = new System.Drawing.Size(180, 23);
+            this.txtTypePrefix.TabIndex = 13;
+            this.txtTypePrefix.Text = "ICD_";
             //
             // lblStatus
             //
@@ -242,6 +262,8 @@
             this.Controls.Add(this.btnGenerateCpp);
             this.Controls.Add(this.btnGenerate);
             this.Controls.Add(this.lblSelection);
+            this.Controls.Add(this.txtTypePrefix);
+            this.Controls.Add(this.lblTypePrefix);
             this.Controls.Add(this.btnArrayLimits);
             this.Controls.Add(this.btnClearSelection);
             this.Controls.Add(this.btnSelectPublishable);
@@ -282,6 +304,8 @@
         private System.Windows.Forms.Button btnGenerate;
         private System.Windows.Forms.Button btnGenerateCpp;
         private System.Windows.Forms.Button btnArrayLimits;
+        private System.Windows.Forms.Label lblTypePrefix;
+        private System.Windows.Forms.TextBox txtTypePrefix;
         private System.Windows.Forms.TextBox txtLog;
     }
 }

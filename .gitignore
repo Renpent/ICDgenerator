@@ -15,6 +15,9 @@ RPR_FOM_v2.0_1516-2010.xml
 ## Generated ICD output
 *.xlsx
 
+## Per-FOM array ceilings, saved beside the FOM they belong to
+*.arraylimits.json
+
 ## Claude Code guidance (local only)
 CLAUDE.md
 DESIGN-NOTES.md

@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using ICDgenerator.Excel;
 using ICDgenerator.Fom;
 
@@ -39,6 +39,17 @@ public sealed class CppGenerator
 
     /// <summary>Namespace for generated code, kept apart from the runtime's own.</summary>
     const string Namespace = "icdfom";
+
+    /// <summary>
+    /// Prepended to every shared FOM data type — enums, records, array typedefs — but not to the
+    /// class structs, which are ICD records with no counterpart in an HLA toolkit.
+    ///
+    /// The point is substitutability. An HLA code generator emits the same FOM types under the same
+    /// names, so a project that already has them can strip or rewrite this prefix and point the
+    /// generated codecs at its own definitions. Keeping it off the class structs means one
+    /// search-and-replace touches exactly the types that have a counterpart.
+    /// </summary>
+    public string TypePrefix { get; set; } = "ICD_";
 
     readonly FomModel _model;
     readonly FomTypeResolver _resolver;
@@ -200,8 +211,10 @@ public sealed class CppGenerator
     /// </summary>
     void NameTypes(IReadOnlyList<GenClass> classes)
     {
+        // The prefix goes through the same sanitising and collision check as everything else, so a
+        // prefixed type still cannot collide with a class that happens to be named like one.
         var entries = _ordered
-            .Select(t => (Key: t.Name, Raw: t.Name, TieBreak: KindTag(t.Kind)))
+            .Select(t => (Key: t.Name, Raw: TypePrefix + t.Name, TieBreak: KindTag(t.Kind)))
             .Concat(classes.Select(c => (Key: c.FullName, Raw: c.ShortName, TieBreak: c.FullName)));
 
         foreach (var (key, name) in CppNames.Resolve(entries, "型名", _result.Warnings))
