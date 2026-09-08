@@ -426,14 +426,19 @@ namespace ICDgenerator
             try
             {
                 var sw = Stopwatch.StartNew();
-                var prefix = txtTypePrefix.Text.Trim();
+                // Empty means self-contained: the tool defines the FOM types itself. Naming the
+                // toolkit's namespace switches to referencing its headers instead, so the project
+                // keeps one definition of each type rather than two.
+                var external = txtTypePrefix.Text.Trim();
                 var result = await Task.Run(() =>
-                    new CppGenerator(model, new FomTypeResolver(model)) { TypePrefix = prefix }
+                    new CppGenerator(model, new FomTypeResolver(model)) { ExternalNamespace = external }
                         .Generate(selections, outputPath));
                 var elapsed = sw.ElapsedMilliseconds;
 
                 Log($"C++生成  : {elapsed} ms / {result.Files.Count} ファイル" +
-                    (prefix.Length > 0 ? $" / 型接頭辞 {prefix}" : " / 型接頭辞なし"));
+                    (external.Length > 0
+                        ? $" / 型は {external} 側を参照"
+                        : " / 型定義も生成"));
                 foreach (var file in result.Files) Log("    " + file);
                 foreach (var warning in result.Warnings) Log("警告: " + warning);
                 Log("完了しました。");

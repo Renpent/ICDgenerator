@@ -99,10 +99,10 @@
             //
             this.lblTypePrefix.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
             this.lblTypePrefix.AutoSize = true;
-            this.lblTypePrefix.Location = new System.Drawing.Point(560, 53);
+            this.lblTypePrefix.Location = new System.Drawing.Point(520, 53);
             this.lblTypePrefix.Name = "lblTypePrefix";
             this.lblTypePrefix.TabIndex = 12;
-            this.lblTypePrefix.Text = "C++型接頭辞:";
+            this.lblTypePrefix.Text = "HLA型の名前空間:";
             //
             // txtTypePrefix
             //

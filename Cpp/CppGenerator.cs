@@ -52,6 +52,23 @@ public sealed class CppGenerator
     /// </summary>
     public string TypePrefix { get; set; } = "";
 
+    /// <summary>
+    /// Outer namespace of an HLA toolkit's own generated FOM types. Setting it switches the emitter
+    /// into reference mode: <c>icd_types.h</c> stops defining the FOM data types and includes those
+    /// headers instead, so a project keeps one definition of each type rather than two.
+    ///
+    /// Reference mode assumes the shape that toolkit produces, which the caller must confirm:
+    /// a header per type, every type reachable as <c>&lt;Outer&gt;::&lt;Type&gt;::&lt;Type&gt;</c>,
+    /// record members named exactly after the FOM's fields, and an array that is a
+    /// <c>std::vector</c> of its element.
+    /// </summary>
+    public string ExternalNamespace { get; set; } = "";
+
+    /// <summary>Include line for one external type; {0} is the FOM type name.</summary>
+    public string ExternalIncludePattern { get; set; } = "{0}.h";
+
+    bool External => ExternalNamespace.Length > 0;
+
     readonly FomModel _model;
     readonly FomTypeResolver _resolver;
     readonly CppGenerationResult _result = new();
@@ -278,9 +295,11 @@ public sealed class CppGenerator
             throw new CppGenerationException($"{typeName} の識別子が決まっていません。");
         }
 
-        // An enum is wrapped in a namespace of the same name, so the type is Name::Name. That is
-        // the shape an HLA toolkit's C++03-era generator produces, and matching it lets the two
-        // sets of headers be used interchangeably.
+        // In reference mode every type comes from the toolkit under Outer::Name::Name. Otherwise
+        // only enums carry that shape, being wrapped in a namespace of their own name so that the
+        // two sets of headers stay interchangeable.
+        if (External) return $"{ExternalNamespace}::{name}::{name}";
+
         return type.Kind == FomDataTypeKind.Enumerated ? $"{name}::{name}" : name;
     }
 
@@ -355,6 +374,25 @@ public sealed class CppGenerator
         header.AppendLine("#define ICDFOM_TYPES_H");
         header.AppendLine();
         header.AppendLine($"#include \"{RuntimeFile}\"");
+
+        var body = new StringBuilder();
+        Banner(body, "FOMのデータ型");
+        body.AppendLine($"#include \"{TypesFile}.h\"");
+        body.AppendLine();
+
+        if (External) WriteExternalTypes(header, body);
+        else WriteOwnTypes(header, body);
+
+        header.AppendLine();
+        header.AppendLine("#endif  // ICDFOM_TYPES_H");
+
+        Save(directory, TypesFile + ".h", header);
+        Save(directory, TypesFile + ".cpp", body);
+    }
+
+    /// <summary>The self-contained form: this tool defines the FOM types and their codecs.</summary>
+    void WriteOwnTypes(StringBuilder header, StringBuilder body)
+    {
         header.AppendLine();
         header.AppendLine($"namespace {Namespace} {{");
         header.AppendLine();
@@ -365,10 +403,6 @@ public sealed class CppGenerator
         header.AppendLine("using icd::encodedSize;");
         header.AppendLine();
 
-        var body = new StringBuilder();
-        Banner(body, "FOMのデータ型");
-        body.AppendLine($"#include \"{TypesFile}.h\"");
-        body.AppendLine();
         body.AppendLine($"namespace {Namespace} {{");
         body.AppendLine();
 
@@ -384,13 +418,130 @@ public sealed class CppGenerator
         }
 
         header.AppendLine($"}}  // namespace {Namespace}");
-        header.AppendLine();
-        header.AppendLine("#endif  // ICDFOM_TYPES_H");
-
         body.AppendLine($"}}  // namespace {Namespace}");
+    }
 
-        Save(directory, TypesFile + ".h", header);
-        Save(directory, TypesFile + ".cpp", body);
+    /// <summary>
+    /// The reference form: the toolkit's headers define the types, and only the codecs are emitted.
+    ///
+    /// Each codec goes inside its own type's namespace, which is not a style choice — a type's only
+    /// associated namespace for argument-dependent lookup is the one it is declared in, so an
+    /// overload left anywhere else is invisible to the container templates and a std::vector of that
+    /// type would fail to compile. Reopening the toolkit's namespace to add them is ordinary C++.
+    ///
+    /// MinSize is specialised explicitly rather than read off a kMinEncodedSize member, since the
+    /// toolkit's types carry no such member. Being a class template specialisation it is found at
+    /// instantiation wherever it is declared, so it goes in icd where it belongs.
+    /// </summary>
+    void WriteExternalTypes(StringBuilder header, StringBuilder body)
+    {
+        header.AppendLine();
+        header.AppendLine($"// 型定義は {ExternalNamespace} 側のヘッダから取る。ここでは定義せず、");
+        header.AppendLine("// ワイヤ形式のコーデックだけを各型の名前空間に足す。");
+
+        foreach (var type in _ordered)
+        {
+            var include = string.Format(ExternalIncludePattern, _typeNames[type.Name]);
+            header.AppendLine($"#include \"{include}\"");
+        }
+        header.AppendLine();
+
+        var minSizes = new List<string>();
+
+        foreach (var type in _ordered)
+        {
+            var name = _typeNames[type.Name];
+            var qualified = $"{ExternalNamespace}::{name}::{name}";
+
+            switch (type.Kind)
+            {
+                case FomDataTypeKind.Enumerated:
+                    WriteExternalEnumCodec(header, type, name);
+                    break;
+
+                case FomDataTypeKind.FixedRecord:
+                    WriteExternalRecordCodec(header, body, type, name);
+                    break;
+
+                // A simple type is a typedef to a primitive and an array a typedef to std::vector,
+                // so both are already covered by the runtime's own codecs and traits.
+                default:
+                    continue;
+            }
+
+            minSizes.Add($"template <> struct MinSize<{qualified}> "
+                + $"{{ enum : size_t {{ value = {MinSizeOf(type.Name)} }}; }};");
+        }
+
+        header.AppendLine("namespace icd {");
+        foreach (var line in minSizes) header.AppendLine(line);
+        header.AppendLine("}  // namespace icd");
+        header.AppendLine();
+        header.AppendLine($"namespace {Namespace} {{");
+        header.AppendLine("using icd::decode;");
+        header.AppendLine("using icd::encode;");
+        header.AppendLine("using icd::encodedSize;");
+        header.AppendLine($"}}  // namespace {Namespace}");
+
+        body.AppendLine("// コーデックの定義。宣言は icd_types.h 側にある。");
+        body.AppendLine();
+    }
+
+    void WriteExternalEnumCodec(StringBuilder header, FomDataType type, string name)
+    {
+        var underlying = ExternalUnderlying(type.Representation);
+        int width = MinSizeOf(type.Name);
+
+        header.AppendLine($"/// FOM: {type.Name}");
+        header.AppendLine($"namespace {ExternalNamespace} {{ namespace {name} {{");
+        header.AppendLine($"inline icd::Result decode(icd::Reader& r, {name}& v) {{");
+        header.AppendLine($"    {underlying} raw = 0;");
+        header.AppendLine("    icd::Result rc = icd::decode(r, raw);");
+        header.AppendLine("    if (rc != icd::Result::Ok) return rc;");
+        header.AppendLine($"    v = static_cast<{name}>(raw);");
+        header.AppendLine("    return icd::Result::Ok;");
+        header.AppendLine("}");
+        header.AppendLine($"inline void encode(icd::Writer& w, {name} v) "
+            + $"{{ icd::encode(w, static_cast<{underlying}>(v)); }}");
+        header.AppendLine($"inline std::size_t encodedSize({name}) {{ return {width}; }}");
+        header.AppendLine($"}} }}  // namespace {ExternalNamespace}::{name}");
+        header.AppendLine();
+    }
+
+    void WriteExternalRecordCodec(StringBuilder header, StringBuilder body, FomDataType type, string name)
+    {
+        var members = CppNames.Resolve(
+            type.Fields.Select(f => (Key: f.Name, Raw: f.Name, TieBreak: f.DataType)),
+            name, _result.Warnings);
+
+        header.AppendLine($"/// FOM: {type.Name}");
+        header.AppendLine($"namespace {ExternalNamespace} {{ namespace {name} {{");
+        header.AppendLine($"icd::Result decode(icd::Reader& r, {name}& v);");
+        header.AppendLine($"void encode(icd::Writer& w, const {name}& v);");
+        header.AppendLine($"std::size_t encodedSize(const {name}& v);");
+        header.AppendLine($"}} }}  // namespace {ExternalNamespace}::{name}");
+        header.AppendLine();
+
+        body.AppendLine($"namespace {ExternalNamespace} {{ namespace {name} {{");
+        WriteCodecBody(body, name, type.Fields
+            .Select(f => new CodecMember(members[f.Name], CallQualifier(f.DataType)))
+            .ToList());
+        body.AppendLine($"}} }}  // namespace {ExternalNamespace}::{name}");
+        body.AppendLine();
+    }
+
+    /// <summary>
+    /// The primitive an enum is carried as. Its representation is a simple type in the toolkit's
+    /// namespace too, but the raw value has to be a plain integer to cast from, so this resolves
+    /// past the typedef to the underlying C++ primitive.
+    /// </summary>
+    string ExternalUnderlying(string representation)
+    {
+        var basicName = _resolver.Resolve(representation).BaseRepresentation;
+
+        return _model.TryGetDataType(basicName, out var basic) && PrimitiveOf(basic) is string primitive
+            ? primitive
+            : throw new CppGenerationException($"{representation} の基本表現を解決できません。");
     }
 
     void WriteSimple(StringBuilder header, FomDataType type)
@@ -512,14 +663,25 @@ public sealed class CppGenerator
         header.AppendLine($"std::size_t encodedSize(const {name}& v);");
         header.AppendLine();
 
-        WriteCodecBody(body, name, fields.Select(f => f.Member).ToList());
+        WriteCodecBody(body, name,
+            fields.Select(f => new CodecMember(f.Member)).ToList());
     }
+
+    /// <summary>One member of a record or class: what to call it, and how to reach its codec.</summary>
+    /// <param name="Qualifier">
+    /// Empty leaves the call unqualified, which is what the self-contained form wants: ordinary
+    /// lookup in icdfom sees the runtime's codecs through using-declarations, and ADL reaches the
+    /// generated ones. Inside a toolkit type's own namespace that breaks down — ordinary lookup
+    /// finds that type's own overload and stops before ever reaching the primitives — so reference
+    /// mode names each codec outright.
+    /// </param>
+    readonly record struct CodecMember(string Name, string Qualifier = "");
 
     /// <summary>
     /// The three functions are identical in shape for a record and for a class, so they are emitted
     /// from one place: read every member in declaration order, which is wire order.
     /// </summary>
-    void WriteCodecBody(StringBuilder body, string name, IReadOnlyList<string> members)
+    void WriteCodecBody(StringBuilder body, string name, IReadOnlyList<CodecMember> members)
     {
         body.AppendLine($"icd::Result decode(icd::Reader& r, {name}& v) {{");
         if (members.Count == 0)
@@ -531,7 +693,7 @@ public sealed class CppGenerator
             body.AppendLine("    icd::Result rc;");
             foreach (var member in members)
             {
-                body.AppendLine($"    rc = decode(r, v.{member});");
+                body.AppendLine($"    rc = {member.Qualifier}decode(r, v.{member.Name});");
                 body.AppendLine("    if (rc != icd::Result::Ok) return rc;");
             }
         }
@@ -541,7 +703,10 @@ public sealed class CppGenerator
 
         body.AppendLine($"void encode(icd::Writer& w, const {name}& v) {{");
         if (members.Count == 0) body.AppendLine("    (void)w; (void)v;");
-        foreach (var member in members) body.AppendLine($"    encode(w, v.{member});");
+        foreach (var member in members)
+        {
+            body.AppendLine($"    {member.Qualifier}encode(w, v.{member.Name});");
+        }
         body.AppendLine("}");
         body.AppendLine();
 
@@ -554,11 +719,29 @@ public sealed class CppGenerator
         else
         {
             body.AppendLine("    std::size_t total = 0;");
-            foreach (var member in members) body.AppendLine($"    total += encodedSize(v.{member});");
+            foreach (var member in members)
+            {
+                body.AppendLine($"    total += {member.Qualifier}encodedSize(v.{member.Name});");
+            }
             body.AppendLine("    return total;");
         }
         body.AppendLine("}");
         body.AppendLine();
+    }
+
+    /// <summary>
+    /// How a call to one member's codec must be spelled from inside a toolkit type's namespace.
+    /// A record or enum has its codec in its own namespace; everything else — primitives, simple
+    /// typedefs, arrays that are std::vector — is served by the runtime.
+    /// </summary>
+    string CallQualifier(string memberTypeName)
+    {
+        if (!External) return "";
+
+        return _model.TryGetDataType(memberTypeName, out var type)
+            && type.Kind is FomDataTypeKind.Enumerated or FomDataTypeKind.FixedRecord
+                ? $"{ExternalNamespace}::{_typeNames[memberTypeName]}::"
+                : "icd::";
     }
 
     void WriteClass(string directory, GenClass cls)
@@ -617,7 +800,8 @@ public sealed class CppGenerator
         body.AppendLine();
         body.AppendLine($"namespace {Namespace} {{");
         body.AppendLine();
-        WriteCodecBody(body, name, fields.Select(f => f.Member).ToList());
+        WriteCodecBody(body, name,
+            fields.Select(f => new CodecMember(f.Member)).ToList());
         body.AppendLine($"}}  // namespace {Namespace}");
 
         Save(directory, name + ".h", header);
