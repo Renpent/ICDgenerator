@@ -4,13 +4,24 @@ namespace ICDgenerator.Fom;
 /// One value on the wire. Every row is real transferred data — container types are walked through
 /// rather than listed, and <see cref="Path"/> carries the structure the containers used to show.
 /// </summary>
-/// <param name="Path">Dotted path from the attribute or parameter, with [] marking array elements.</param>
+/// <param name="Path">
+/// Dotted path from the attribute or parameter. An array element carries an index variable —
+/// <c>SegmentRecords[i].SegmentNumber</c> — and rows sharing an index belong to one repeating block.
+/// </param>
 /// <param name="SizeBytes">Size of a single occurrence; null when the encoding is variable length.</param>
 /// <param name="Amount">
-/// How many times this value occurs: 1, a literal count, or an expression naming the count rows that
-/// decide it — never a bare "variable", so a reader always has something concrete to parse by.
-/// `Σ(path)` means the total is the sum of the values in that count row, which is what a dynamic
-/// array nested inside another repetition produces; a product would overstate a ragged shape.
+/// How many times this value occurs consecutively **within one iteration** of its enclosing block:
+/// 1, a literal for a fixed-length run of primitives, or the name of the count row that decides it.
+/// It is deliberately local — a value repeated by an enclosing block does not multiply into it,
+/// because that is what made the sheet read as "all the A's, then all the B's".
+/// </param>
+/// <param name="Repeat">
+/// The blocks this row sits inside, as index ranges: <c>i = 0..SegmentRecords_Count-1 (上限16)</c>,
+/// accumulating outermost first when blocks nest. Empty when the row occurs exactly once.
+/// </param>
+/// <param name="MaxBytes">
+/// Worst case for this row: size × amount × every enclosing bound. Summing the column over a class
+/// gives the largest datagram it can produce. Null where a size is not fixed.
 /// </param>
 /// <param name="Selector">
 /// Discriminant values that must hold for this row to appear at all. Empty means unconditional.
@@ -25,7 +36,9 @@ public sealed record FlatField(
     string Units,
     string Selector,
     string Semantics,
-    string LengthRule = "");
+    string LengthRule = "",
+    string Repeat = "",
+    long? MaxBytes = null);
 
 /// <summary>
 /// Expands an attribute or parameter into the individual values that go on the wire, following
@@ -76,25 +89,31 @@ public sealed class FomFlattener
             ["RPRpaddingTo64Array"] = ("パディング", "HLA側になし(GW算出)")
         };
 
+    /// <summary>One enclosing repetition: its index variable, how the range reads, and its ceiling.</summary>
+    readonly record struct Block(string Index, string Range, long Bound);
+
     readonly FomModel _model;
     readonly FomTypeResolver _resolver;
+    readonly ArrayLimits _limits;
 
-    public FomFlattener(FomModel model, FomTypeResolver resolver)
+    public FomFlattener(FomModel model, FomTypeResolver resolver, ArrayLimits? limits = null)
     {
         _model = model;
         _resolver = resolver;
+        _limits = limits ?? new ArrayLimits();
     }
 
     public List<FlatField> Flatten(string name, string dataType, string semantics)
     {
         var rows = new List<FlatField>();
-        Expand(name, dataType, semantics, selector: "", amount: "1", depth: 0, rows,
+        Expand(name, dataType, semantics, selector: "", Array.Empty<Block>(), depth: 0, rows,
             new HashSet<string>(StringComparer.Ordinal));
         return rows;
     }
 
-    void Expand(string path, string dataType, string semantics, string selector, string amount,
-        int depth, List<FlatField> rows, HashSet<string> visiting, string lengthRule = "")
+    void Expand(string path, string dataType, string semantics, string selector,
+        IReadOnlyList<Block> blocks, int depth, List<FlatField> rows, HashSet<string> visiting,
+        string lengthRule = "")
     {
         var resolved = _resolver.Resolve(dataType);
         _model.TryGetDataType(dataType, out var type);
@@ -113,16 +132,16 @@ public sealed class FomFlattener
                     foreach (var field in type.Fields)
                     {
                         Expand($"{path}.{field.Name}", field.DataType, field.Semantics,
-                            selector, amount, depth + 1, rows, visiting);
+                            selector, blocks, depth + 1, rows, visiting);
                     }
                     break;
 
                 case FomDataTypeKind.VariantRecord:
-                    ExpandVariant(path, type, selector, amount, depth, rows, visiting);
+                    ExpandVariant(path, type, selector, blocks, depth, rows, visiting);
                     break;
 
                 case FomDataTypeKind.Array:
-                    ExpandArray(path, type, semantics, selector, amount, depth, rows, visiting);
+                    ExpandArray(path, type, semantics, selector, blocks, depth, rows, visiting);
                     break;
             }
 
@@ -130,25 +149,17 @@ public sealed class FomFlattener
             return;
         }
 
-        rows.Add(new FlatField(
-            path,
-            dataType,
-            resolved.BaseRepresentation,
-            resolved.SizeInBytes,
-            amount,
-            resolved.Units,
-            selector,
-            semantics,
+        rows.Add(Row(path, dataType, resolved, amount: "1", maxAmount: 1, blocks, selector, semantics,
             FirstRule(lengthRule, composite ? "展開打切り" : "", SubByteRule(resolved))));
     }
 
-    void ExpandVariant(string path, FomDataType type, string selector, string amount, int depth,
-        List<FlatField> rows, HashSet<string> visiting)
+    void ExpandVariant(string path, FomDataType type, string selector, IReadOnlyList<Block> blocks,
+        int depth, List<FlatField> rows, HashSet<string> visiting)
     {
         // The discriminant precedes the selected alternative on the wire and is what tells the
         // receiver which alternative follows, so it is always transferred.
         Expand($"{path}.{type.Discriminant}", type.DiscriminantDataType,
-            $"{path} の判別子。", selector, amount, depth + 1, rows, visiting, lengthRule: "判別子");
+            $"{path} の判別子。", selector, blocks, depth + 1, rows, visiting, lengthRule: "判別子");
 
         foreach (var alternative in type.Alternatives)
         {
@@ -156,64 +167,98 @@ public sealed class FomFlattener
             // Carrying the selector down to every leaf is what keeps that visible once the container
             // rows are gone.
             Expand($"{path}.{alternative.Name}", alternative.DataType, alternative.Semantics,
-                Combine(selector, alternative.Enumerator, " / "), amount, depth + 1, rows, visiting);
+                Combine(selector, alternative.Enumerator, " / "), blocks, depth + 1, rows, visiting);
         }
     }
 
-    void ExpandArray(string path, FomDataType type, string semantics, string selector, string amount,
-        int depth, List<FlatField> rows, HashSet<string> visiting)
+    void ExpandArray(string path, FomDataType type, string semantics, string selector,
+        IReadOnlyList<Block> blocks, int depth, List<FlatField> rows, HashSet<string> visiting)
     {
-        var elementCount = type.Cardinality;
         bool dynamic = !IsFixedCardinality(type);
+        string countName = "";
+        long bound;
+        string rangeEnd;
 
         if (dynamic)
         {
-            // The count is a field of the UDP layout in its own right, whether or not HLA carries it.
-            elementCount = CountFieldName(path);
-            rows.Add(new FlatField(elementCount, CountType, CountType, CountBytes, amount, "",
-                selector, $"{path} の要素数。", CountRuleOf(type)));
-        }
+            // The count is a field of the UDP layout in its own right, whether or not HLA carries
+            // it, and it stays even though the bound below gives the worst case: the bound sizes
+            // the buffer, the count says how much of it is actually filled.
+            countName = CountFieldName(path);
+            bound = _limits.For(type.Name);
+            rangeEnd = countName + "-1";
 
-        // A dynamic array inside anything that repeats has one count *per enclosing occurrence*, and
-        // those counts differ from one to the next. Multiplying them would claim a rectangle where
-        // the wire holds a ragged one — for A_Count=2 with inner counts 3 and 1 the total is 4, not
-        // 2*3 — so the total is written as a sum over the count rows instead of a product.
-        var elementAmount = dynamic && Repeats(amount)
-            ? $"Σ({elementCount})"
-            : Combine(amount, elementCount, "*");
+            rows.Add(Row(countName, CountType, _resolver.Resolve(CountType), amount: "1", maxAmount: 1,
+                blocks, selector, $"{path} の要素数。", CountRuleOf(type), CountBytes));
+        }
+        else
+        {
+            bound = int.Parse(type.Cardinality);
+            rangeEnd = (bound - 1).ToString();
+        }
 
         _model.TryGetDataType(type.ElementDataType, out var element);
 
         if (element is not null && element.Kind is FomDataTypeKind.FixedRecord
             or FomDataTypeKind.VariantRecord or FomDataTypeKind.Array)
         {
-            // [] marks the repetition; the element's own members hang off it.
-            Expand($"{path}[]", type.ElementDataType, semantics, selector, elementAmount,
-                depth + 1, rows, visiting);
+            // The element expands to several rows, so this is a repeating block: give it an index
+            // variable and record its range. Without that the rows read as "every A, then every B",
+            // when the wire holds A B A B.
+            var index = IndexName(blocks.Count);
+            var range = $"{index} = 0..{rangeEnd}" + (dynamic ? $" (上限{bound})" : "");
+
+            Expand($"{path}[{index}]", type.ElementDataType, semantics, selector,
+                blocks.Append(new Block(index, range, bound)).ToList(), depth + 1, rows, visiting);
             return;
         }
 
-        // An array of primitives is a single row: the element size times the count.
+        // An array of primitives is a single row, so there is no ordering to be ambiguous about and
+        // no index is needed: the run simply repeats in place.
         var resolved = _resolver.Resolve(type.ElementDataType);
-        rows.Add(new FlatField(path, type.ElementDataType, resolved.BaseRepresentation,
-            resolved.SizeInBytes, elementAmount, resolved.Units, selector, semantics,
-            FirstRule(LengthRuleOf(type), SubByteRule(resolved))));
+        rows.Add(Row(path, type.ElementDataType, resolved,
+            amount: dynamic ? countName : type.Cardinality, maxAmount: bound,
+            blocks, selector, semantics, FirstRule(LengthRuleOf(type), SubByteRule(resolved))));
     }
 
     /// <summary>
-    /// Joins two occurrence counts or selectors. Nested arrays multiply and nested variants
-    /// accumulate conditions; a plain 1 or an empty side contributes nothing.
+    /// Builds a row, working out the repetition text and the worst-case byte count from the blocks
+    /// it sits inside. Keeping this in one place is what stops the two from drifting apart.
     /// </summary>
+    static FlatField Row(string path, string typeName, ResolvedType resolved, string amount,
+        long maxAmount, IReadOnlyList<Block> blocks, string selector, string semantics,
+        string lengthRule, int? sizeOverride = null)
+    {
+        int? size = sizeOverride ?? resolved.SizeInBytes;
+
+        long? maxBytes = null;
+        if (size is int bytes)
+        {
+            long total = bytes * maxAmount;
+            foreach (var block in blocks) total *= block.Bound;
+            maxBytes = total;
+        }
+
+        return new FlatField(path, typeName, resolved.BaseRepresentation, size, amount,
+            resolved.Units, selector, semantics, lengthRule,
+            string.Join(", ", blocks.Select(b => b.Range)), maxBytes);
+    }
+
+    /// <summary>
+    /// i, j, k … for successive nesting levels. Past the usual letters it keeps going rather than
+    /// repeating one, since a repeated index would silently merge two different blocks.
+    /// </summary>
+    static string IndexName(int depth) =>
+        depth < 6 ? "ijklmn"[depth].ToString() : "i" + (depth - 4);
+
+    /// <summary>Joins two selectors; nested variants accumulate conditions.</summary>
     static string Combine(string outer, string inner, string separator)
     {
-        if (outer.Length == 0 || outer == "1") return inner;
-        if (inner.Length == 0 || inner == "1") return outer;
+        if (outer.Length == 0) return inner;
+        if (inner.Length == 0) return outer;
 
         return outer + separator + inner;
     }
-
-    /// <summary>Whether an occurrence count means "more than once", so nested counts cannot multiply.</summary>
-    static bool Repeats(string amount) => amount.Length > 0 && amount != "1";
 
     static bool IsFixedCardinality(FomDataType type) => int.TryParse(type.Cardinality, out _);
 

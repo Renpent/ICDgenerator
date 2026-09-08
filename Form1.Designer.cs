@@ -44,6 +44,7 @@
             this.lblSelection = new System.Windows.Forms.Label();
             this.btnGenerate = new System.Windows.Forms.Button();
             this.btnGenerateCpp = new System.Windows.Forms.Button();
+            this.btnArrayLimits = new System.Windows.Forms.Button();
             this.txtLog = new System.Windows.Forms.TextBox();
             ((System.ComponentModel.ISupportInitialize)(this.splitTrees)).BeginInit();
             this.splitTrees.Panel1.SuspendLayout();
@@ -178,11 +179,22 @@
             this.btnClearSelection.UseVisualStyleBackColor = true;
             this.btnClearSelection.Click += new System.EventHandler(this.btnClearSelection_Click);
             //
+            // btnArrayLimits
+            //
+            this.btnArrayLimits.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left)));
+            this.btnArrayLimits.Location = new System.Drawing.Point(254, 425);
+            this.btnArrayLimits.Name = "btnArrayLimits";
+            this.btnArrayLimits.Size = new System.Drawing.Size(110, 26);
+            this.btnArrayLimits.TabIndex = 8;
+            this.btnArrayLimits.Text = "配列上限...";
+            this.btnArrayLimits.UseVisualStyleBackColor = true;
+            this.btnArrayLimits.Click += new System.EventHandler(this.btnArrayLimits_Click);
+            //
             // lblSelection
             //
             this.lblSelection.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left)));
             this.lblSelection.AutoSize = true;
-            this.lblSelection.Location = new System.Drawing.Point(258, 431);
+            this.lblSelection.Location = new System.Drawing.Point(374, 431);
             this.lblSelection.Name = "lblSelection";
             this.lblSelection.Size = new System.Drawing.Size(60, 15);
             this.lblSelection.TabIndex = 8;
@@ -230,6 +242,7 @@
             this.Controls.Add(this.btnGenerateCpp);
             this.Controls.Add(this.btnGenerate);
             this.Controls.Add(this.lblSelection);
+            this.Controls.Add(this.btnArrayLimits);
             this.Controls.Add(this.btnClearSelection);
             this.Controls.Add(this.btnSelectPublishable);
             this.Controls.Add(this.splitTrees);
@@ -268,6 +281,7 @@
         private System.Windows.Forms.Label lblSelection;
         private System.Windows.Forms.Button btnGenerate;
         private System.Windows.Forms.Button btnGenerateCpp;
+        private System.Windows.Forms.Button btnArrayLimits;
         private System.Windows.Forms.TextBox txtLog;
     }
 }

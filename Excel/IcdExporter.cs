@@ -1,4 +1,4 @@
-using ICDgenerator.Fom;
+﻿using ICDgenerator.Fom;
 
 namespace ICDgenerator.Excel;
 
@@ -12,12 +12,18 @@ public static partial class IcdExporter
     /// Classes to break out into the extraction sheets. The full parse result is always written
     /// regardless, so an empty selection simply omits those sheets.
     /// </param>
-    public static void Export(FomModel model, string path, IReadOnlyList<IcdSelection>? selections = null)
+    /// <param name="limits">
+    /// Ceilings for dynamic arrays. A FOM declares none, so without them the worst-case size of any
+    /// class carrying a variable array is unknowable; the defaults apply when none are given.
+    /// </param>
+    public static void Export(FomModel model, string path,
+        IReadOnlyList<IcdSelection>? selections = null, ArrayLimits? limits = null)
     {
         var workbook = new XlsxWorkbook();
         var resolver = new FomTypeResolver(model);
 
-        WriteSelectionSheets(workbook, model, resolver, selections ?? Array.Empty<IcdSelection>());
+        WriteSelectionSheets(workbook, model, resolver, selections ?? Array.Empty<IcdSelection>(),
+            limits ?? new ArrayLimits());
 
         WriteOverviewSheet(workbook, model);
         WriteObjectClassSheet(workbook, model);

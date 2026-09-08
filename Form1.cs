@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using ICDgenerator.Cpp;
 using ICDgenerator.Excel;
 using ICDgenerator.Fom;
@@ -8,6 +8,15 @@ namespace ICDgenerator
     public partial class Form1 : Form
     {
         FomModel? _model;
+
+        /// <summary>
+        /// Ceilings for dynamic arrays, loaded from beside the FOM. A FOM states none, so without
+        /// these the worst-case size of any class with a variable array cannot be worked out.
+        /// </summary>
+        ArrayLimits _limits = new();
+
+        /// <summary>Where <see cref="_limits"/> is persisted; empty until a FOM is loaded.</summary>
+        string _limitsPath = "";
 
         /// <summary>Guards the subtree cascade against the AfterCheck events it raises itself.</summary>
         bool _suppressCheckCascade;
@@ -53,6 +62,8 @@ namespace ICDgenerator
                 var elapsed = sw.ElapsedMilliseconds;
 
                 _model = model;
+                _limitsPath = ArrayLimits.PathFor(fomPath);
+                _limits = ArrayLimits.Load(_limitsPath);
                 PopulateTrees(model);
 
                 Log($"FOM     : {fomPath}");
@@ -68,6 +79,8 @@ namespace ICDgenerator
                 Log($"列挙値数             : {model.DataTypes.Values.Sum(t => t.Enumerators.Count)}");
                 Log($"注記数               : {model.Notes.Count}");
                 Log($"HLA標準MIMの型数     : {model.StandardDataTypes.Count}");
+                Log($"配列上限             : 既定 {_limits.Default}" +
+                    (_limits.ByType.Count > 0 ? $" / 個別設定 {_limits.ByType.Count} 型" : " (個別設定なし)"));
                 Log("");
                 LogStructureDiagnostics(model);
                 foreach (var warning in model.Warnings) Log("警告: " + warning);
@@ -125,7 +138,8 @@ namespace ICDgenerator
                 {
                     foreach (var field in flattener.Flatten(member.Name, member.Type, member.Semantics))
                     {
-                        if (field.Amount.StartsWith('Σ')) hasNested = true;
+                        // Two index variables on one row means one repeating block inside another.
+                        if (field.Repeat.Contains(", ", StringComparison.Ordinal)) hasNested = true;
                         if (field.LengthRule == "判別子") hasVariant = true;
                         if (field.Path.EndsWith("_Count", StringComparison.Ordinal)) counts++;
                     }
@@ -319,7 +333,8 @@ namespace ICDgenerator
             try
             {
                 var sw = Stopwatch.StartNew();
-                await Task.Run(() => IcdExporter.Export(model, outputPath, selections));
+                var limits = _limits;
+                await Task.Run(() => IcdExporter.Export(model, outputPath, selections, limits));
                 var elapsed = sw.ElapsedMilliseconds;
 
                 Log($"Excel出力 : {elapsed} ms");
@@ -343,6 +358,36 @@ namespace ICDgenerator
             finally
             {
                 SetBusy(false);
+            }
+        }
+
+        private void btnArrayLimits_Click(object sender, EventArgs e)
+        {
+            if (_model is null)
+            {
+                MessageBox.Show(this, "先にFOMファイルを読み込んでください。", "ICD Generator",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Edited on a copy so cancelling really cancels.
+            var working = ArrayLimits.Load(_limitsPath);
+
+            using var dialog = new ArrayLimitsForm(_model, new FomTypeResolver(_model), working);
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+            _limits = working;
+
+            try
+            {
+                _limits.Save(_limitsPath);
+                Log($"配列上限を保存しました: {_limitsPath}");
+                Log($"    既定 {_limits.Default} / 個別設定 {_limits.ByType.Count} 型");
+            }
+            catch (Exception ex)
+            {
+                // The limits are still in force for this session even if they could not be written.
+                Log("配列上限を保存できませんでした: " + ex.Message);
             }
         }
 
@@ -420,6 +465,7 @@ namespace ICDgenerator
             btnLoad.Enabled = !busy;
             btnGenerate.Enabled = !busy;
             btnGenerateCpp.Enabled = !busy;
+            btnArrayLimits.Enabled = !busy;
             btnSelectPublishable.Enabled = !busy;
             btnClearSelection.Enabled = !busy;
             UseWaitCursor = busy;

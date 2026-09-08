@@ -1,4 +1,4 @@
-using ICDgenerator.Fom;
+﻿using ICDgenerator.Fom;
 
 namespace ICDgenerator.Excel;
 
@@ -25,14 +25,14 @@ public static partial class IcdExporter
     /// rarely declared — so they are emitted blank for the reader to fill in.
     /// </summary>
     static void WriteSelectionSheets(XlsxWorkbook workbook, FomModel model, FomTypeResolver resolver,
-        IReadOnlyList<IcdSelection> selections)
+        IReadOnlyList<IcdSelection> selections, ArrayLimits limits)
     {
         if (selections.Count == 0) return;
 
-        var flattener = new FomFlattener(model, resolver);
+        var flattener = new FomFlattener(model, resolver, limits);
         var index = workbook.AddSheet("抽出概要");
 
-        index.AddHeader("Name", "ID", "Port", "Rate", "Size(Bytes)", "Descripter");
+        index.AddHeader("Name", "ID", "Port", "Rate", "最大(Bytes)", "Descripter");
 
         // Sheets must exist before the index can link to them, and the index must come first in the
         // workbook, so add the index sheet up front and fill in its rows as the details are built.
@@ -62,7 +62,6 @@ public static partial class IcdExporter
         }
 
         index.FreezeHeader = true;
-        index.AutoFilter = true;
         // ID / Port / Rate are blank for the reader to fill in, so fitting them to an empty
         // column would leave nowhere to type. Everything else fits its content.
         index.SetColumnWidth(2, 12);
@@ -80,7 +79,8 @@ public static partial class IcdExporter
         // value on 抽出概要 answers that; 選択子 stays out because the deployment FOM has no variant
         // records, so it would be blank on every row. FlatField still carries all four, so a sheet
         // that wants them back only has to render them.
-        sheet.AddHeader("Name", "Type", "Size(Bytes)", "Amount", "長さ決定", "Units", "Description");
+        sheet.AddHeader("Name", "Type", "Size(Bytes)", "Amount", "繰り返し", "最大(Bytes)",
+                        "長さ決定", "Units", "Description");
 
         var interaction = selection.IsInteraction
             ? model.AllInteractionClasses.First(c => c.FullName == selection.FullName)
@@ -93,7 +93,14 @@ public static partial class IcdExporter
             ? interaction.AllParameters.Select(p => (p.Name, p.DataType, p.Semantics))
             : objectClass!.AllAttributes.Select(a => (a.Name, a.DataType, a.Semantics));
 
-        int totalBytes = 0;
+        // The worst case is the sum of every row's ceiling — each row's 最大(Bytes) already folds in
+        // the bounds of every block it sits inside. Variant alternatives are the exception: they are
+        // mutually exclusive, so only the largest of them can be present and adding them all would
+        // overstate the class. Grouping by the outermost selector picks the largest alternative;
+        // alternatives nested inside one another are still summed within their group, which can only
+        // err upward.
+        long worstCase = 0;
+        var alternatives = new Dictionary<string, long>(StringComparer.Ordinal);
         bool fixedSize = true;
 
         foreach (var (name, dataType, semantics) in members)
@@ -110,11 +117,27 @@ public static partial class IcdExporter
                     users.Add(selection.ShortName);
                 }
 
+                if (field.MaxBytes is not long max)
+                {
+                    fixedSize = false;
+                }
+                else if (field.Selector.Length == 0)
+                {
+                    worstCase += max;
+                }
+                else
+                {
+                    var branch = field.Selector.Split(" / ")[0];
+                    alternatives[branch] = alternatives.GetValueOrDefault(branch) + max;
+                }
+
                 sheet.AddRow(
                     field.Path,
                     field.TypeName,
                     field.SizeBytes is int bytes ? bytes : "可変",
                     field.Amount,
+                    field.Repeat,
+                    field.MaxBytes,
                     field.LengthRule,
                     // The FOM writes "NA" where a type has no units; that placeholder is noise in a
                     // working layout sheet, though データ型定義 still reproduces it verbatim.
@@ -122,19 +145,18 @@ public static partial class IcdExporter
                     field.Semantics);
             }
 
-            // The class total comes from the member's own resolved width, not from the expanded
-            // rows: composites deliberately leave their size blank once they are broken open.
-            if (resolver.Resolve(dataType).SizeInBits is int bits) totalBytes += bits / 8;
-            else fixedSize = false;
         }
 
+        if (alternatives.Count > 0) worstCase += alternatives.Values.Max();
+
         sheet.FreezeHeader = true;
-        sheet.AutoFilter = true;
-        sheet.WrapColumn(7);
+        // No autofilter: the rows are in wire order, and anything that reorders or hides them makes
+        // the sheet say something the datagram does not.
+        sheet.WrapColumn(9);
 
         return new IndexRow(
             selection.ShortName,
-            fixedSize ? totalBytes : "可変",
+            fixedSize ? worstCase : "要確認",
             interaction?.Semantics ?? objectClass!.Semantics);
     }
 
@@ -175,7 +197,6 @@ public static partial class IcdExporter
         }
 
         sheet.FreezeHeader = true;
-        sheet.AutoFilter = true;
         sheet.WrapColumn(7);
         sheet.WrapColumn(8);
     }
