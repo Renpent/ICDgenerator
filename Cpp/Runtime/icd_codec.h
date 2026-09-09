@@ -187,10 +187,11 @@ template <> struct MinSize<int64_t>  { enum : size_t { value = 8 }; };
 template <> struct MinSize<float>    { enum : size_t { value = 4 }; };
 template <> struct MinSize<double>   { enum : size_t { value = 8 }; };
 
-/// HLAboolean is four bytes on the wire — the standard MIM declares it an enumeration over
-/// HLAinteger32BE — even though the HLA API hands it over as a plain bool, which is the type the
-/// generated code uses. A FOM that declares a boolean of its own keeps whatever width it states.
-enum : size_t { kBooleanSize = 4 };
+/// One byte. The standard MIM encodes HLAboolean as an enumeration over HLAinteger32BE, but that
+/// is HLA's own encoding and this datagram is not HLA's — the same reason the element count here is
+/// a 16-bit little-endian field rather than the 32-bit big-endian one HLAvariableArray prescribes.
+/// A FOM that declares a boolean of its own keeps whatever width it states.
+enum : size_t { kBooleanSize = 1 };
 
 template <> struct MinSize<bool> { enum : size_t { value = kBooleanSize }; };
 
@@ -238,14 +239,14 @@ ICDCODEC_PRIMITIVE(double, 8, loadF64, storeF64)
 // writes something other than 0 or 1 has still said "true" — rejecting the record over that would
 // lose data that is not actually ambiguous.
 inline Result decode(Reader& r, bool& v) {
-    uint32_t raw = 0;
+    uint8_t raw = 0;
     Result rc = decode(r, raw);
     if (rc != Result::Ok) return rc;
     v = raw != 0;
     return Result::Ok;
 }
 
-inline void encode(Writer& w, bool v) { encode(w, static_cast<uint32_t>(v ? 1 : 0)); }
+inline void encode(Writer& w, bool v) { encode(w, static_cast<uint8_t>(v ? 1 : 0)); }
 
 inline size_t encodedSize(bool) { return kBooleanSize; }
 

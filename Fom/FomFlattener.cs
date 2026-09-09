@@ -1,4 +1,4 @@
-namespace ICDgenerator.Fom;
+﻿namespace ICDgenerator.Fom;
 
 /// <summary>
 /// One value on the wire. Every row is real transferred data — container types are walked through
@@ -65,6 +65,27 @@ public sealed class FomFlattener
 
     /// <summary>Deep enough for any real FOM; a backstop against pathological nesting.</summary>
     const int MaxDepth = 12;
+
+    /// <summary>
+    /// The one boolean the HLA standard defines, and the width it takes here.
+    ///
+    /// The MIM encodes it as an enumeration over HLAinteger32BE, so <see cref="FomTypeResolver"/>
+    /// reports four bytes — correctly, because that describes the FOM. **This sheet describes the
+    /// datagram**, where a boolean has no use for four bytes; the same reasoning made the element
+    /// count a 16-bit little-endian field rather than HLA's 32-bit big-endian one. The full-parse
+    /// sheets keep reporting what the FOM declares, which is the difference between the two views.
+    ///
+    /// Matched by the standard's own name and nothing else. A FOM may declare a boolean of its own
+    /// — the RPR FOM has a one-byte RPRboolean — and picking out which of its two-valued
+    /// enumerations meant one would be a guess.
+    /// </summary>
+    const string StandardBoolean = "HLAboolean";
+
+    const int BooleanBytes = 1;
+
+    /// <summary>The wire width when it differs from what the FOM declares; null when it does not.</summary>
+    static int? WireSizeOverride(string dataType) =>
+        dataType == StandardBoolean ? BooleanBytes : null;
 
     /// <summary>
     /// How a variable array's length is established.
@@ -150,7 +171,8 @@ public sealed class FomFlattener
         }
 
         rows.Add(Row(path, dataType, resolved, amount: "1", maxAmount: 1, blocks, selector, semantics,
-            FirstRule(lengthRule, composite ? "展開打切り" : "", SubByteRule(resolved))));
+            FirstRule(lengthRule, composite ? "展開打切り" : "", SubByteRule(resolved)),
+            WireSizeOverride(dataType)));
     }
 
     void ExpandVariant(string path, FomDataType type, string selector, IReadOnlyList<Block> blocks,
@@ -218,7 +240,8 @@ public sealed class FomFlattener
         var resolved = _resolver.Resolve(type.ElementDataType);
         rows.Add(Row(path, type.ElementDataType, resolved,
             amount: dynamic ? countName : type.Cardinality, maxAmount: bound,
-            blocks, selector, semantics, FirstRule(LengthRuleOf(type), SubByteRule(resolved))));
+            blocks, selector, semantics, FirstRule(LengthRuleOf(type), SubByteRule(resolved)),
+            WireSizeOverride(type.ElementDataType)));
     }
 
     /// <summary>

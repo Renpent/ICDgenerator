@@ -329,6 +329,9 @@ public sealed class CppGenerator
 
         if (!_model.TryGetDataType(typeName, out var type)) return 1;
 
+        // One byte, not the four its MIM representation implies: see FomFlattener.StandardBoolean.
+        if (IsStandardBoolean(type)) return _minSize[typeName] = 1;
+
         // Set before recursing so a self-referential type cannot loop; CollectTypes has already
         // rejected those, this only keeps the walk finite if one slips through.
         _minSize[typeName] = 1;
