@@ -277,6 +277,18 @@ public sealed class CppGenerator
         };
     }
 
+    /// <summary>
+    /// The one boolean the HLA standard defines. Its MIM declaration is an enumeration over
+    /// HLAinteger32BE, but every HLA API hands it over as a plain bool, so that is what the
+    /// generated code uses — four bytes on the wire, <c>bool</c> in the struct.
+    ///
+    /// Matched by the standard's own name and nothing else. A FOM is free to declare a boolean of
+    /// its own, and guessing which of its two-valued enumerations meant one would be exactly the
+    /// kind of assumption this tool does not make.
+    /// </summary>
+    static bool IsStandardBoolean(FomDataType type) =>
+        type.Kind == FomDataTypeKind.Enumerated && type.Name == "HLAboolean";
+
     /// <summary>The C++ type used to declare a member of this FOM type.</summary>
     string MemberType(string typeName)
     {
@@ -289,6 +301,10 @@ public sealed class CppGenerator
         {
             return PrimitiveOf(type) ?? throw new CppGenerationException($"{typeName} を型に対応付けられません。");
         }
+
+        // bool is a C++ primitive, so it needs no declaration of its own and no namespace — the
+        // runtime already carries its codec, and it stays bool in reference mode too.
+        if (IsStandardBoolean(type)) return "bool";
 
         if (!_typeNames.TryGetValue(typeName, out var name))
         {
@@ -408,6 +424,8 @@ public sealed class CppGenerator
 
         foreach (var type in _ordered)
         {
+            if (IsStandardBoolean(type)) continue;
+
             switch (type.Kind)
             {
                 case FomDataTypeKind.Simple: WriteSimple(header, type); break;
@@ -441,6 +459,9 @@ public sealed class CppGenerator
 
         foreach (var type in _ordered)
         {
+            // bool comes from the language, not from the toolkit's headers.
+            if (IsStandardBoolean(type)) continue;
+
             var include = string.Format(ExternalIncludePattern, _typeNames[type.Name]);
             header.AppendLine($"#include \"{include}\"");
         }
@@ -450,6 +471,8 @@ public sealed class CppGenerator
 
         foreach (var type in _ordered)
         {
+            if (IsStandardBoolean(type)) continue;
+
             var name = _typeNames[type.Name];
             var qualified = $"{ExternalNamespace}::{name}::{name}";
 
@@ -739,6 +762,7 @@ public sealed class CppGenerator
         if (!External) return "";
 
         return _model.TryGetDataType(memberTypeName, out var type)
+            && !IsStandardBoolean(type)
             && type.Kind is FomDataTypeKind.Enumerated or FomDataTypeKind.FixedRecord
                 ? $"{ExternalNamespace}::{_typeNames[memberTypeName]}::"
                 : "icd::";

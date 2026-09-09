@@ -187,6 +187,13 @@ template <> struct MinSize<int64_t>  { enum : size_t { value = 8 }; };
 template <> struct MinSize<float>    { enum : size_t { value = 4 }; };
 template <> struct MinSize<double>   { enum : size_t { value = 8 }; };
 
+/// HLAboolean is four bytes on the wire — the standard MIM declares it an enumeration over
+/// HLAinteger32BE — even though the HLA API hands it over as a plain bool, which is the type the
+/// generated code uses. A FOM that declares a boolean of its own keeps whatever width it states.
+enum : size_t { kBooleanSize = 4 };
+
+template <> struct MinSize<bool> { enum : size_t { value = kBooleanSize }; };
+
 template <class T>
 struct MinSize<std::vector<T> > {
     enum : size_t { value = kCountSize };
@@ -226,6 +233,21 @@ ICDCODEC_PRIMITIVE(float, 4, loadF32, storeF32)
 ICDCODEC_PRIMITIVE(double, 8, loadF64, storeF64)
 
 #undef ICDCODEC_PRIMITIVE
+
+// Any non-zero encoding reads as true. The wire carries a width, not a C++ bool, and a sender that
+// writes something other than 0 or 1 has still said "true" — rejecting the record over that would
+// lose data that is not actually ambiguous.
+inline Result decode(Reader& r, bool& v) {
+    uint32_t raw = 0;
+    Result rc = decode(r, raw);
+    if (rc != Result::Ok) return rc;
+    v = raw != 0;
+    return Result::Ok;
+}
+
+inline void encode(Writer& w, bool v) { encode(w, static_cast<uint32_t>(v ? 1 : 0)); }
+
+inline size_t encodedSize(bool) { return kBooleanSize; }
 
 // ---------------------------------------------------------------------------
 // Containers
@@ -293,6 +315,40 @@ size_t encodedSize(const std::vector<T>& v) {
     size_t total = kCountSize;
     for (size_t i = 0; i < v.size(); ++i) total += encodedSize(v[i]);
     return total;
+}
+
+// std::vector<bool> is the packed specialisation, so v[i] is a proxy rather than a bool& and the
+// templates above will not bind to it. These plain overloads are preferred over the templates and
+// do the same work through a local variable.
+inline Result decode(Reader& r, std::vector<bool>& v) {
+    Count n = 0;
+    Result rc = decode(r, n);
+    if (rc != Result::Ok) return rc;
+
+    if (n > r.remaining() / kBooleanSize) return Result::CorruptCount;
+
+    v.clear();
+    v.resize(n);
+    for (Count i = 0; i < n; ++i) {
+        bool value = false;
+        rc = decode(r, value);
+        if (rc != Result::Ok) return rc;
+        v[i] = value;
+    }
+    return Result::Ok;
+}
+
+inline void encode(Writer& w, const std::vector<bool>& v) {
+    if (v.size() > 0xFFFFu) {
+        w.fail();
+        return;
+    }
+    encode(w, static_cast<Count>(v.size()));
+    for (size_t i = 0; i < v.size(); ++i) encode(w, static_cast<bool>(v[i]));
+}
+
+inline size_t encodedSize(const std::vector<bool>& v) {
+    return kCountSize + v.size() * kBooleanSize;
 }
 
 // ---------------------------------------------------------------------------
