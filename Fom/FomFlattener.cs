@@ -236,10 +236,12 @@ public sealed class FomFlattener
         }
 
         // An array of primitives is a single row, so there is no ordering to be ambiguous about and
-        // no index is needed: the run simply repeats in place.
+        // no index is needed: the run simply repeats in place. The ceiling rides along with the
+        // count because this row has no 繰り返し entry of its own to carry it, and dividing the
+        // 領域 column by the element size to recover it is not something a reader should have to do.
         var resolved = _resolver.Resolve(type.ElementDataType);
         rows.Add(Row(path, type.ElementDataType, resolved,
-            amount: dynamic ? countName : type.Cardinality, maxAmount: bound,
+            amount: dynamic ? $"{countName}（上限:{bound}）" : type.Cardinality, maxAmount: bound,
             blocks, selector, semantics, FirstRule(LengthRuleOf(type), SubByteRule(resolved)),
             WireSizeOverride(type.ElementDataType)));
     }

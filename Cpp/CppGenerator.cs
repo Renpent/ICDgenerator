@@ -503,7 +503,7 @@ public sealed class CppGenerator
             }
 
             minSizes.Add($"template <> struct FixedSize<{qualified}> "
-                + $"{{ enum : size_t {{ value = {FixedSizeOf(type.Name)} }}; }};");
+                + $"{{ static constexpr std::size_t value = {FixedSizeOf(type.Name)}; }};");
         }
 
         header.AppendLine("namespace icd {");
@@ -527,16 +527,15 @@ public sealed class CppGenerator
 
         header.AppendLine($"/// FOM: {type.Name}");
         header.AppendLine($"namespace {ExternalNamespace} {{ namespace {name} {{");
-        header.AppendLine($"inline icd::Result decode(icd::Reader& r, {name}& v) {{");
+        header.AppendLine($"[[nodiscard]] inline icd::Result decode(icd::Reader& r, {name}& v) {{");
         header.AppendLine($"    {underlying} raw = 0;");
-        header.AppendLine("    icd::Result rc = icd::decode(r, raw);");
-        header.AppendLine("    if (rc != icd::Result::Ok) return rc;");
+        header.AppendLine("    if (const icd::Result rc = icd::decode(r, raw); rc != icd::Result::Ok) return rc;");
         header.AppendLine($"    v = static_cast<{name}>(raw);");
         header.AppendLine("    return icd::Result::Ok;");
         header.AppendLine("}");
         header.AppendLine($"inline void encode(icd::Writer& w, {name} v) "
             + $"{{ icd::encode(w, static_cast<{underlying}>(v)); }}");
-        header.AppendLine($"inline std::size_t encodedSize({name}) {{ return {width}; }}");
+        header.AppendLine($"[[nodiscard]] inline std::size_t encodedSize({name}) {{ return {width}; }}");
         header.AppendLine($"}} }}  // namespace {ExternalNamespace}::{name}");
         header.AppendLine();
     }
@@ -549,9 +548,9 @@ public sealed class CppGenerator
 
         header.AppendLine($"/// FOM: {type.Name}");
         header.AppendLine($"namespace {ExternalNamespace} {{ namespace {name} {{");
-        header.AppendLine($"icd::Result decode(icd::Reader& r, {name}& v);");
+        header.AppendLine($"[[nodiscard]] icd::Result decode(icd::Reader& r, {name}& v);");
         header.AppendLine($"void encode(icd::Writer& w, const {name}& v);");
-        header.AppendLine($"std::size_t encodedSize(const {name}& v);");
+        header.AppendLine($"[[nodiscard]] std::size_t encodedSize(const {name}& v);");
         header.AppendLine($"}} }}  // namespace {ExternalNamespace}::{name}");
         header.AppendLine();
 
@@ -627,10 +626,9 @@ public sealed class CppGenerator
 
         // An unrecognised value is passed through rather than rejected: a FOM may add enumerators,
         // and refusing one would drop a record that is otherwise intact.
-        header.AppendLine($"inline icd::Result decode(icd::Reader& r, {name}& v) {{");
+        header.AppendLine($"[[nodiscard]] inline icd::Result decode(icd::Reader& r, {name}& v) {{");
         header.AppendLine($"    {underlying} raw = 0;");
-        header.AppendLine("    icd::Result rc = icd::decode(r, raw);");
-        header.AppendLine("    if (rc != icd::Result::Ok) return rc;");
+        header.AppendLine("    if (const icd::Result rc = icd::decode(r, raw); rc != icd::Result::Ok) return rc;");
         header.AppendLine($"    v = static_cast<{name}>(raw);");
         header.AppendLine("    return icd::Result::Ok;");
         header.AppendLine("}");
@@ -639,13 +637,13 @@ public sealed class CppGenerator
         header.AppendLine($"    icd::encode(w, static_cast<{underlying}>(v));");
         header.AppendLine("}");
         header.AppendLine();
-        header.AppendLine($"inline std::size_t encodedSize({name}) {{ return {width}; }}");
+        header.AppendLine($"[[nodiscard]] inline std::size_t encodedSize({name}) {{ return {width}; }}");
         header.AppendLine();
         header.AppendLine($"}}  // namespace {name}");
         header.AppendLine();
         header.AppendLine($"}}  // namespace {Namespace}");
         header.AppendLine("namespace icd {");
-        header.AppendLine($"template <> struct FixedSize<{Namespace}::{name}::{name}> {{ enum : size_t {{ value = {width} }}; }};");
+        header.AppendLine($"template <> struct FixedSize<{Namespace}::{name}::{name}> {{ static constexpr std::size_t value = {width}; }};");
         header.AppendLine("}");
         header.AppendLine($"namespace {Namespace} {{");
         header.AppendLine();
@@ -689,12 +687,12 @@ public sealed class CppGenerator
         {
             header.AppendLine($"    {memberType} {member};  ///< FOM: {field.Name} : {field.DataType}");
         }
-        header.AppendLine($"    enum : std::size_t {{ kEncodedSize = {FixedSizeOf(type.Name)} }};");
+        header.AppendLine($"    static constexpr std::size_t kEncodedSize = {FixedSizeOf(type.Name)};");
         header.AppendLine("};");
         header.AppendLine();
-        header.AppendLine($"icd::Result decode(icd::Reader& r, {name}& v);");
+        header.AppendLine($"[[nodiscard]] icd::Result decode(icd::Reader& r, {name}& v);");
         header.AppendLine($"void encode(icd::Writer& w, const {name}& v);");
-        header.AppendLine($"std::size_t encodedSize(const {name}& v);");
+        header.AppendLine($"[[nodiscard]] std::size_t encodedSize(const {name}& v);");
         header.AppendLine();
 
         WriteCodecBody(body, name,
@@ -757,23 +755,19 @@ public sealed class CppGenerator
     void WriteCodecBody(StringBuilder body, string name, IReadOnlyList<CodecMember> members, int size)
     {
         body.AppendLine($"icd::Result decode(icd::Reader& r, {name}& v) {{");
-        if (members.Count == 0)
+        if (members.Count == 0) body.AppendLine("    (void)r; (void)v;");
+
+        foreach (var member in members)
         {
-            body.AppendLine("    (void)r; (void)v;");
+            var call = member.Bound is int bound
+                ? member.InnerBound is int inner
+                    ? $"icd::decodeBounded(r, v.{member.Name}, {bound}, {inner})"
+                    : $"icd::decodeBounded(r, v.{member.Name}, {bound})"
+                : $"{member.Qualifier}decode(r, v.{member.Name})";
+
+            body.AppendLine($"    if (const icd::Result rc = {call}; rc != icd::Result::Ok) return rc;");
         }
-        else
-        {
-            body.AppendLine("    icd::Result rc;");
-            foreach (var member in members)
-            {
-                body.AppendLine(member.Bound is int bound
-                    ? member.InnerBound is int inner
-                        ? $"    rc = icd::decodeBounded(r, v.{member.Name}, {bound}, {inner});"
-                        : $"    rc = icd::decodeBounded(r, v.{member.Name}, {bound});"
-                    : $"    rc = {member.Qualifier}decode(r, v.{member.Name});");
-                body.AppendLine("    if (rc != icd::Result::Ok) return rc;");
-            }
-        }
+
         body.AppendLine("    return icd::Result::Ok;");
         body.AppendLine("}");
         body.AppendLine();
@@ -847,12 +841,12 @@ public sealed class CppGenerator
         {
             header.AppendLine($"    {memberType} {member};  ///< FOM: {source.Name} : {source.DataType}");
         }
-        header.AppendLine($"    enum : std::size_t {{ kEncodedSize = {size} }};");
+        header.AppendLine($"    static constexpr std::size_t kEncodedSize = {size};");
         header.AppendLine("};");
         header.AppendLine();
-        header.AppendLine($"icd::Result decode(icd::Reader& r, {name}& v);");
+        header.AppendLine($"[[nodiscard]] icd::Result decode(icd::Reader& r, {name}& v);");
         header.AppendLine($"void encode(icd::Writer& w, const {name}& v);");
-        header.AppendLine($"std::size_t encodedSize(const {name}& v);");
+        header.AppendLine($"[[nodiscard]] std::size_t encodedSize(const {name}& v);");
         header.AppendLine();
         header.AppendLine("/// Reads the records batched into one datagram. The class id is a runtime argument:");
         header.AppendLine("/// the ICD's ID column is filled in by hand, so it is not known at generation time.");
@@ -886,7 +880,7 @@ public sealed class CppGenerator
         sb.AppendLine("// 自動生成 — 編集しないこと。");
         sb.AppendLine($"// {subject}");
         sb.AppendLine("//");
-        sb.AppendLine("// ICDgenerator が FOM から生成。バイトオーダーはビッグエンディアン。");
+        sb.AppendLine("// ICDgenerator が FOM から生成。C++17 / ビッグエンディアン / レコードは固定長。");
         sb.AppendLine();
     }
 
