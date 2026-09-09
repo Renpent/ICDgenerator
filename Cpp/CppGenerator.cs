@@ -317,12 +317,12 @@ public sealed class CppGenerator
             throw new CppGenerationException($"{typeName} の識別子が決まっていません。");
         }
 
-        // In reference mode every type comes from the toolkit under Outer::Name::Name. Otherwise
-        // only enums carry that shape, being wrapped in a namespace of their own name so that the
-        // two sets of headers stay interchangeable.
+        // In reference mode every type comes from the toolkit under Outer::Name::Name, which is
+        // the shape a C++03-era HLA generator produces. Self-contained output is not constrained by
+        // that and uses the plain name, an `enum class` needing no wrapper to scope its values.
         if (External) return $"{ExternalNamespace}::{name}::{name}";
 
-        return type.Kind == FomDataTypeKind.Enumerated ? $"{name}::{name}" : name;
+        return name;
     }
 
     /// <summary>
@@ -589,14 +589,19 @@ public sealed class CppGenerator
         type.Units.Length > 0 && type.Units != "NA" ? $"  [{type.Units}]" : "";
 
     /// <summary>
-    /// An enum goes inside a namespace of its own name, so the type is spelled Name::Name and the
-    /// enumerators Name::Value. That is the shape a C++03-era HLA generator produces for a scoped
-    /// enumeration, and matching it lets the two sets of headers stand in for each other.
+    /// An `enum class` with the FOM's own name: the type is spelled Name and the enumerators
+    /// Name::Value. Unscoped is not an option — the RPR FOM has 3,958 enumerators and names such as
+    /// Other and Unknown repeat across dozens of them, which would collide in one namespace.
     ///
-    /// The codecs go inside that namespace too, and they must: the enum's only associated namespace
-    /// for argument-dependent lookup is the one it is declared in, so overloads left outside would
-    /// be invisible to the container templates. Their own calls are qualified for the same reason —
-    /// the primitive codecs are not visible unqualified from in there.
+    /// This used to be an unscoped enum inside a namespace of its own name (type spelled Name::Name),
+    /// to match what a C++03-era HLA generator emits so the two header sets could stand in for each
+    /// other. Reference mode still spells types that way, since it is the toolkit's headers being
+    /// included; self-contained output is not bound by it. **The enumerator spelling is the same
+    /// either way**, which is why dropping the wrapper changed no calling code.
+    ///
+    /// The codec overloads sit next to it in <see cref="Namespace"/>, which is also the enum's only
+    /// associated namespace for argument-dependent lookup — that is what lets the container
+    /// templates find them for a std::vector of this enum.
     /// </summary>
     void WriteEnum(StringBuilder header, FomDataType type)
     {
@@ -609,10 +614,8 @@ public sealed class CppGenerator
             name, _result.Warnings);
 
         header.AppendLine($"/// FOM: {type.Name}");
-        header.AppendLine($"/// 型として使うときは {name}::{name}、値は {name}::<列挙子名>。");
-        header.AppendLine($"namespace {name} {{");
-        header.AppendLine();
-        header.AppendLine($"enum {name} : {underlying} {{");
+        header.AppendLine($"/// 値は {name}::<列挙子名>。");
+        header.AppendLine($"enum class {name} : {underlying} {{");
 
         // Two enumerators may share a value in a FOM; C++ allows that, so they are emitted as-is.
         foreach (var enumerator in type.Enumerators)
@@ -639,11 +642,9 @@ public sealed class CppGenerator
         header.AppendLine();
         header.AppendLine($"[[nodiscard]] inline std::size_t encodedSize({name}) {{ return {width}; }}");
         header.AppendLine();
-        header.AppendLine($"}}  // namespace {name}");
-        header.AppendLine();
         header.AppendLine($"}}  // namespace {Namespace}");
         header.AppendLine("namespace icd {");
-        header.AppendLine($"template <> struct FixedSize<{Namespace}::{name}::{name}> {{ static constexpr std::size_t value = {width}; }};");
+        header.AppendLine($"template <> struct FixedSize<{Namespace}::{name}> {{ static constexpr std::size_t value = {width}; }};");
         header.AppendLine("}");
         header.AppendLine($"namespace {Namespace} {{");
         header.AppendLine();
