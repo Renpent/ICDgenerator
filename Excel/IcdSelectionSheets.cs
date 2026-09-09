@@ -32,7 +32,7 @@ public static partial class IcdExporter
         var flattener = new FomFlattener(model, resolver, limits);
         var index = workbook.AddSheet("抽出概要");
 
-        index.AddHeader("Name", "ID", "Port", "Rate", "最大(Bytes)", "Descripter");
+        index.AddHeader("Name", "ID", "Port", "Rate", "Size(Bytes)", "Descripter");
 
         // Sheets must exist before the index can link to them, and the index must come first in the
         // workbook, so add the index sheet up front and fill in its rows as the details are built.
@@ -95,7 +95,7 @@ public static partial class IcdExporter
         // value on 抽出概要 answers that; 選択子 stays out because the deployment FOM has no variant
         // records, so it would be blank on every row. FlatField still carries all four, so a sheet
         // that wants them back only has to render them.
-        sheet.AddHeader("Name", "Type", "Size(Bytes)", "Amount", "繰り返し", "最大(Bytes)",
+        sheet.AddHeader("Name", "Type", "Size(Bytes)", "Amount", "繰り返し", "領域(Bytes)",
                         "長さ決定", "Units", "Description");
 
         var interaction = selection.IsInteraction
@@ -109,12 +109,12 @@ public static partial class IcdExporter
             ? interaction.AllParameters.Select(p => (p.Name, p.DataType, p.Semantics))
             : objectClass!.AllAttributes.Select(a => (a.Name, a.DataType, a.Semantics));
 
-        // The worst case is the sum of every row's ceiling — each row's 最大(Bytes) already folds in
-        // the bounds of every block it sits inside. Variant alternatives are the exception: they are
-        // mutually exclusive, so only the largest of them can be present and adding them all would
-        // overstate the class. Grouping by the outermost selector picks the largest alternative;
-        // alternatives nested inside one another are still summed within their group, which can only
-        // err upward.
+        // Every record is a fixed-size box, so this sum is the record's size rather than a worst
+        // case: each row's 領域(Bytes) is the space it always occupies, ceilings folded in. Variant
+        // alternatives are the exception — mutually exclusive, so the box holds the largest of them
+        // and adding them all would overstate it. Grouping by the outermost selector picks that
+        // largest; alternatives nested inside one another are still summed within their group, which
+        // can only err upward.
         long worstCase = 0;
         var alternatives = new Dictionary<string, long>(StringComparer.Ordinal);
         bool fixedSize = true;
@@ -185,12 +185,13 @@ public static partial class IcdExporter
     {
         var sheet = workbook.AddSheet("ヘッダ");
 
-        sheet.AddRow("データグラム", "同一クラスのレコードを詰めた1つのUDPペイロード。");
-        sheet.AddRow("ペイロード上限", 1400);
+        sheet.AddRow("データグラム", "同一クラスのレコードを詰めた1つのUDPペイロード。"
+            + "レコードは全て同じ長さ（可変長配列は上限まで領域を取る）。");
+        sheet.AddRow("ペイロード上限", "1400（MTU 1500）/ 8900（MTU 9000）");
         sheet.AddRow("バイトオーダー", "ビッグエンディアン（ネットワークバイトオーダー）");
         sheet.AddRow();
 
-        sheet.AddHeader("Name", "Type", "Size(Bytes)", "Amount", "繰り返し", "最大(Bytes)",
+        sheet.AddHeader("Name", "Type", "Size(Bytes)", "Amount", "繰り返し", "領域(Bytes)",
                         "長さ決定", "Units", "Description");
 
         sheet.AddRow("magic", "uint32", 4, "1", "", 4, "固定", "",
@@ -204,12 +205,13 @@ public static partial class IcdExporter
             + "残りは分割用に予約。");
         sheet.AddRow("recordCount", "uint16", 2, "1", "", 2, "固定", "",
             "後続のレコード件数。");
-        sheet.AddRow("reserved", "uint16", 2, "1", "", 2, "固定", "", "0 固定。");
-        sheet.AddRow("recordLen", "uint16", 2, "1", "i = 0..recordCount-1", null, "固定", "",
-            "各レコード本体の長さ。壊れた1件を飛ばして次に進めるのも、送信側が属性を増やしても"
-            + "受信側が次へ飛べるのも、この長さがあるため。");
-        sheet.AddRow("<レコード本体>", "", "可変", "1", "i = 0..recordCount-1", null, "", "",
-            "クラスごとの詳細シートを参照。中身はそのシートの行順に並ぶ。");
+        sheet.AddRow("recordSize", "uint16", 2, "1", "", 2, "固定", "",
+            "レコード1件のバイト数。全レコードが同じ長さなので、長さはここに1回書けば足りる。"
+            + "k番目のレコードは 12 + k * recordSize の位置にあり、読み飛ばさずに取り出せる。"
+            + "送信側が後のICDで属性を増やしていればこの値が大きくなるので、"
+            + "知っている分だけ読んで残りを飛ばせる。");
+        sheet.AddRow("<レコード本体>", "", "recordSize", "1", "i = 0..recordCount-1", null, "固定", "",
+            "クラスごとの詳細シートを参照。中身はそのシートの行順に並び、間に区切りは入らない。");
 
         sheet.FrozenRows = 5;
         sheet.WrapColumn(9);

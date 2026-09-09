@@ -67,6 +67,12 @@ public sealed class CppGenerator
     /// <summary>Include line for one external type; {0} is the FOM type name.</summary>
     public string ExternalIncludePattern { get; set; } = "{0}.h";
 
+    /// <summary>
+    /// Ceilings for dynamic arrays. Every record is a fixed-size box, so these are what make its
+    /// size a constant at all: an array occupies its ceiling whether or not it is full.
+    /// </summary>
+    public ArrayLimits Limits { get; set; } = new();
+
     bool External => ExternalNamespace.Length > 0;
 
     readonly FomModel _model;
@@ -79,7 +85,7 @@ public sealed class CppGenerator
     /// <summary>Emission order: a type always follows the ones it is composed of.</summary>
     readonly List<FomDataType> _ordered = new();
 
-    readonly Dictionary<string, int> _minSize = new(StringComparer.Ordinal);
+    readonly Dictionary<string, int> _fixedSize = new(StringComparer.Ordinal);
 
     public CppGenerator(FomModel model, FomTypeResolver resolver)
     {
@@ -320,34 +326,35 @@ public sealed class CppGenerator
     }
 
     /// <summary>
-    /// Bytes a value occupies with every variable-length part empty — the divisor that bounds an
-    /// element count against the bytes remaining, so it must never be zero.
+    /// Bytes a value occupies. Exact, not a minimum: a dynamic array is written at its ceiling, so
+    /// every type has one constant size and a record is a fixed-size box.
     /// </summary>
-    int MinSizeOf(string typeName)
+    int FixedSizeOf(string typeName)
     {
-        if (_minSize.TryGetValue(typeName, out var cached)) return cached;
+        if (_fixedSize.TryGetValue(typeName, out var cached)) return cached;
 
         if (!_model.TryGetDataType(typeName, out var type)) return 1;
 
         // One byte, not the four its MIM representation implies: see FomFlattener.StandardBoolean.
-        if (IsStandardBoolean(type)) return _minSize[typeName] = 1;
+        if (IsStandardBoolean(type)) return _fixedSize[typeName] = 1;
 
         // Set before recursing so a self-referential type cannot loop; CollectTypes has already
         // rejected those, this only keeps the walk finite if one slips through.
-        _minSize[typeName] = 1;
+        _fixedSize[typeName] = 1;
 
         int size = type.Kind switch
         {
             FomDataTypeKind.Basic => ((type.Size ?? 8) + 7) / 8,
-            FomDataTypeKind.Simple or FomDataTypeKind.Enumerated => MinSizeOf(type.Representation),
-            FomDataTypeKind.FixedRecord => type.Fields.Sum(f => MinSizeOf(f.DataType)),
+            FomDataTypeKind.Simple or FomDataTypeKind.Enumerated => FixedSizeOf(type.Representation),
+            FomDataTypeKind.FixedRecord => type.Fields.Sum(f => FixedSizeOf(f.DataType)),
             FomDataTypeKind.Array => int.TryParse(type.Cardinality, out var count)
-                ? count * MinSizeOf(type.ElementDataType)
-                : 2,  // icd::kCountSize — an empty dynamic array is still its count
+                ? count * FixedSizeOf(type.ElementDataType)
+                // icd::kCountSize plus room for the ceiling, filled or not.
+                : 2 + Limits.For(type.Name) * FixedSizeOf(type.ElementDataType),
             _ => 1
         };
 
-        return _minSize[typeName] = Math.Max(size, 1);
+        return _fixedSize[typeName] = Math.Max(size, 1);
     }
 
     // ------------------------------------------------------------------
@@ -450,7 +457,7 @@ public sealed class CppGenerator
     /// overload left anywhere else is invisible to the container templates and a std::vector of that
     /// type would fail to compile. Reopening the toolkit's namespace to add them is ordinary C++.
     ///
-    /// MinSize is specialised explicitly rather than read off a kMinEncodedSize member, since the
+    /// FixedSize is specialised explicitly rather than read off a kEncodedSize member, since the
     /// toolkit's types carry no such member. Being a class template specialisation it is found at
     /// instantiation wherever it is declared, so it goes in icd where it belongs.
     /// </summary>
@@ -495,8 +502,8 @@ public sealed class CppGenerator
                     continue;
             }
 
-            minSizes.Add($"template <> struct MinSize<{qualified}> "
-                + $"{{ enum : size_t {{ value = {MinSizeOf(type.Name)} }}; }};");
+            minSizes.Add($"template <> struct FixedSize<{qualified}> "
+                + $"{{ enum : size_t {{ value = {FixedSizeOf(type.Name)} }}; }};");
         }
 
         header.AppendLine("namespace icd {");
@@ -516,7 +523,7 @@ public sealed class CppGenerator
     void WriteExternalEnumCodec(StringBuilder header, FomDataType type, string name)
     {
         var underlying = ExternalUnderlying(type.Representation);
-        int width = MinSizeOf(type.Name);
+        int width = FixedSizeOf(type.Name);
 
         header.AppendLine($"/// FOM: {type.Name}");
         header.AppendLine($"namespace {ExternalNamespace} {{ namespace {name} {{");
@@ -550,8 +557,9 @@ public sealed class CppGenerator
 
         body.AppendLine($"namespace {ExternalNamespace} {{ namespace {name} {{");
         WriteCodecBody(body, name, type.Fields
-            .Select(f => new CodecMember(members[f.Name], CallQualifier(f.DataType)))
-            .ToList());
+            .Select(f => new CodecMember(members[f.Name], CallQualifier(f.DataType),
+                BoundOf(f.DataType), InnerBoundOf(f.DataType)))
+            .ToList(), FixedSizeOf(type.Name));
         body.AppendLine($"}} }}  // namespace {ExternalNamespace}::{name}");
         body.AppendLine();
     }
@@ -595,7 +603,7 @@ public sealed class CppGenerator
     {
         var name = _typeNames[type.Name];
         var underlying = MemberType(type.Representation);
-        int width = MinSizeOf(type.Name);
+        int width = FixedSizeOf(type.Name);
 
         var members = CppNames.Resolve(
             type.Enumerators.Select(e => (Key: e.Name, Raw: e.Name, TieBreak: e.Value)),
@@ -637,7 +645,7 @@ public sealed class CppGenerator
         header.AppendLine();
         header.AppendLine($"}}  // namespace {Namespace}");
         header.AppendLine("namespace icd {");
-        header.AppendLine($"template <> struct MinSize<{Namespace}::{name}::{name}> {{ enum : size_t {{ value = {width} }}; }};");
+        header.AppendLine($"template <> struct FixedSize<{Namespace}::{name}::{name}> {{ enum : size_t {{ value = {width} }}; }};");
         header.AppendLine("}");
         header.AppendLine($"namespace {Namespace} {{");
         header.AppendLine();
@@ -681,7 +689,7 @@ public sealed class CppGenerator
         {
             header.AppendLine($"    {memberType} {member};  ///< FOM: {field.Name} : {field.DataType}");
         }
-        header.AppendLine($"    enum : std::size_t {{ kMinEncodedSize = {MinSizeOf(type.Name)} }};");
+        header.AppendLine($"    enum : std::size_t {{ kEncodedSize = {FixedSizeOf(type.Name)} }};");
         header.AppendLine("};");
         header.AppendLine();
         header.AppendLine($"icd::Result decode(icd::Reader& r, {name}& v);");
@@ -690,7 +698,9 @@ public sealed class CppGenerator
         header.AppendLine();
 
         WriteCodecBody(body, name,
-            fields.Select(f => new CodecMember(f.Member)).ToList());
+            fields.Select(f => new CodecMember(f.Member, "", BoundOf(f.Field.DataType),
+                InnerBoundOf(f.Field.DataType))).ToList(),
+            FixedSizeOf(type.Name));
     }
 
     /// <summary>One member of a record or class: what to call it, and how to reach its codec.</summary>
@@ -701,13 +711,50 @@ public sealed class CppGenerator
     /// finds that type's own overload and stops before ever reaching the primitives — so reference
     /// mode names each codec outright.
     /// </param>
-    readonly record struct CodecMember(string Name, string Qualifier = "");
+    /// <param name="Bound">
+    /// Ceiling when the member is a dynamic array, which is written at that size however full it is.
+    /// Null for everything else, whose codec is reached the ordinary way.
+    /// </param>
+    /// <param name="InnerBound">
+    /// Second ceiling when the elements are themselves dynamic arrays. An element that is a record
+    /// containing an array needs none — that record's own codec knows its fields' ceilings.
+    /// </param>
+    readonly record struct CodecMember(string Name, string Qualifier = "",
+        int? Bound = null, int? InnerBound = null);
+
+    /// <summary>True for an array type with no fixed cardinality.</summary>
+    bool IsDynamicArray(string typeName, out FomDataType? type) =>
+        _model.TryGetDataType(typeName, out type)
+        && type.Kind == FomDataTypeKind.Array
+        && !int.TryParse(type.Cardinality, out _);
+
+    /// <summary>The ceiling for a member that is a dynamic array; null when it is not one.</summary>
+    int? BoundOf(string memberTypeName) =>
+        IsDynamicArray(memberTypeName, out var type) ? Limits.For(type!.Name) : null;
+
+    /// <summary>
+    /// The elements' own ceiling when they are dynamic arrays too. Three levels of direct nesting
+    /// would need a third, and are refused instead of quietly encoding something else.
+    /// </summary>
+    int? InnerBoundOf(string memberTypeName)
+    {
+        if (!IsDynamicArray(memberTypeName, out var outer)) return null;
+        if (!IsDynamicArray(outer!.ElementDataType, out var inner)) return null;
+
+        if (IsDynamicArray(inner!.ElementDataType, out _))
+        {
+            throw new CppGenerationException(
+                $"可変長配列が3段直接入れ子になっています: {memberTypeName}。未対応です。");
+        }
+
+        return Limits.For(inner.Name);
+    }
 
     /// <summary>
     /// The three functions are identical in shape for a record and for a class, so they are emitted
     /// from one place: read every member in declaration order, which is wire order.
     /// </summary>
-    void WriteCodecBody(StringBuilder body, string name, IReadOnlyList<CodecMember> members)
+    void WriteCodecBody(StringBuilder body, string name, IReadOnlyList<CodecMember> members, int size)
     {
         body.AppendLine($"icd::Result decode(icd::Reader& r, {name}& v) {{");
         if (members.Count == 0)
@@ -719,7 +766,11 @@ public sealed class CppGenerator
             body.AppendLine("    icd::Result rc;");
             foreach (var member in members)
             {
-                body.AppendLine($"    rc = {member.Qualifier}decode(r, v.{member.Name});");
+                body.AppendLine(member.Bound is int bound
+                    ? member.InnerBound is int inner
+                        ? $"    rc = icd::decodeBounded(r, v.{member.Name}, {bound}, {inner});"
+                        : $"    rc = icd::decodeBounded(r, v.{member.Name}, {bound});"
+                    : $"    rc = {member.Qualifier}decode(r, v.{member.Name});");
                 body.AppendLine("    if (rc != icd::Result::Ok) return rc;");
             }
         }
@@ -731,26 +782,19 @@ public sealed class CppGenerator
         if (members.Count == 0) body.AppendLine("    (void)w; (void)v;");
         foreach (var member in members)
         {
-            body.AppendLine($"    {member.Qualifier}encode(w, v.{member.Name});");
+            body.AppendLine(member.Bound is int bound
+                ? member.InnerBound is int inner
+                    ? $"    icd::encodeBounded(w, v.{member.Name}, {bound}, {inner});"
+                    : $"    icd::encodeBounded(w, v.{member.Name}, {bound});"
+                : $"    {member.Qualifier}encode(w, v.{member.Name});");
         }
         body.AppendLine("}");
         body.AppendLine();
 
+        // Constant, because every array is written at its ceiling. Nothing to walk.
         body.AppendLine($"std::size_t encodedSize(const {name}& v) {{");
-        if (members.Count == 0)
-        {
-            body.AppendLine("    (void)v;");
-            body.AppendLine("    return 0;");
-        }
-        else
-        {
-            body.AppendLine("    std::size_t total = 0;");
-            foreach (var member in members)
-            {
-                body.AppendLine($"    total += {member.Qualifier}encodedSize(v.{member.Name});");
-            }
-            body.AppendLine("    return total;");
-        }
+        body.AppendLine("    (void)v;");
+        body.AppendLine($"    return {size};");
         body.AppendLine("}");
         body.AppendLine();
     }
@@ -784,7 +828,7 @@ public sealed class CppGenerator
             .Select(m => (Member: members[m.Name], Type: MemberType(m.DataType), Source: m))
             .ToList();
 
-        int minSize = cls.Members.Sum(m => MinSizeOf(m.DataType));
+        int size = cls.Members.Sum(m => FixedSizeOf(m.DataType));
 
         var header = new StringBuilder();
         Banner(header, cls.FullName);
@@ -803,7 +847,7 @@ public sealed class CppGenerator
         {
             header.AppendLine($"    {memberType} {member};  ///< FOM: {source.Name} : {source.DataType}");
         }
-        header.AppendLine($"    enum : std::size_t {{ kMinEncodedSize = {minSize} }};");
+        header.AppendLine($"    enum : std::size_t {{ kEncodedSize = {size} }};");
         header.AppendLine("};");
         header.AppendLine();
         header.AppendLine($"icd::Result decode(icd::Reader& r, {name}& v);");
@@ -828,7 +872,9 @@ public sealed class CppGenerator
         body.AppendLine($"namespace {Namespace} {{");
         body.AppendLine();
         WriteCodecBody(body, name,
-            fields.Select(f => new CodecMember(f.Member)).ToList());
+            fields.Select(f => new CodecMember(f.Member, "", BoundOf(f.Source.DataType),
+                InnerBoundOf(f.Source.DataType))).ToList(),
+            size);
         body.AppendLine($"}}  // namespace {Namespace}");
 
         Save(directory, name + ".h", header);

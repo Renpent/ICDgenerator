@@ -430,9 +430,15 @@ namespace ICDgenerator
                 // toolkit's namespace switches to referencing its headers instead, so the project
                 // keeps one definition of each type rather than two.
                 var external = txtTypePrefix.Text.Trim();
+                var limits = _limits;
                 var result = await Task.Run(() =>
-                    new CppGenerator(model, new FomTypeResolver(model)) { ExternalNamespace = external }
-                        .Generate(selections, outputPath));
+                    new CppGenerator(model, new FomTypeResolver(model))
+                    {
+                        ExternalNamespace = external,
+                        // The ceilings are what make a record a fixed-size box, so the generator
+                        // needs the same ones the sheets were sized with.
+                        Limits = limits
+                    }.Generate(selections, outputPath));
                 var elapsed = sw.ElapsedMilliseconds;
 
                 Log($"C++生成  : {elapsed} ms / {result.Files.Count} ファイル" +
