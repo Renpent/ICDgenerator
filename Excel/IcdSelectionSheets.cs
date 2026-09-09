@@ -43,10 +43,17 @@ public static partial class IcdExporter
         // follows covers the selected classes only, instead of the FOM's several thousand values.
         var enumUsage = new SortedDictionary<string, SortedSet<string>>(StringComparer.Ordinal);
 
-        foreach (var selection in selections)
+        WriteHeaderSheet(workbook);
+
+        for (int i = 0; i < selections.Count; i++)
         {
-            var detail = workbook.AddSheet(selection.ShortName);
-            rows.Add(WriteDetailSheet(detail, model, resolver, flattener, selection, enumUsage) with
+            var detail = workbook.AddSheet(selections[i].ShortName);
+
+            // Row of this class on the index, counting its header row.
+            int indexRow = i + 2;
+
+            rows.Add(WriteDetailSheet(detail, model, resolver, flattener, selections[i], enumUsage,
+                index.Name, indexRow) with
             {
                 SheetName = detail.Name
             });
@@ -70,10 +77,19 @@ public static partial class IcdExporter
         index.WrapColumn(6);
     }
 
+    /// <param name="indexSheet">Sheet holding this class's ID / Port / Rate.</param>
+    /// <param name="indexRow">Row it occupies there.</param>
     static IndexRow WriteDetailSheet(XlsxSheet sheet, FomModel model, FomTypeResolver resolver,
         FomFlattener flattener, IcdSelection selection,
-        IDictionary<string, SortedSet<string>> enumUsage)
+        IDictionary<string, SortedSet<string>> enumUsage, string indexSheet, int indexRow)
     {
+        // ID / Port / Rate are entered by hand on 抽出概要, so this sheet points at them rather than
+        // holding a second copy: filling one in there shows up here, and the two cannot disagree.
+        sheet.AddRow("ID", XlsxRef.ToCell(indexSheet, "B", indexRow));
+        sheet.AddRow("Port", XlsxRef.ToCell(indexSheet, "C", indexRow));
+        sheet.AddRow("Rate", XlsxRef.ToCell(indexSheet, "D", indexRow));
+        sheet.AddRow();
+
         // Only what the reader needs to lay bytes out. Transportation, 信頼配送 and Order describe
         // how a member is delivered rather than what it looks like on the wire, and the class-wide
         // value on 抽出概要 answers that; 選択子 stays out because the deployment FOM has no variant
@@ -149,7 +165,8 @@ public static partial class IcdExporter
 
         if (alternatives.Count > 0) worstCase += alternatives.Values.Max();
 
-        sheet.FreezeHeader = true;
+        // Freeze through the identification block and the table's own header.
+        sheet.FrozenRows = 5;
         // No autofilter: the rows are in wire order, and anything that reorders or hides them makes
         // the sheet say something the datagram does not.
         sheet.WrapColumn(9);
@@ -158,6 +175,42 @@ public static partial class IcdExporter
             selection.ShortName,
             fixedSize ? worstCase : "要確認",
             interaction?.Semantics ?? objectClass!.Semantics);
+    }
+
+    /// <summary>
+    /// The bytes that precede every record, which no per-class sheet can show because they are
+    /// common to all of them. Same columns as a detail sheet so the two read the same way.
+    /// </summary>
+    static void WriteHeaderSheet(XlsxWorkbook workbook)
+    {
+        var sheet = workbook.AddSheet("ヘッダ");
+
+        sheet.AddRow("データグラム", "同一クラスのレコードを詰めた1つのUDPペイロード。");
+        sheet.AddRow("ペイロード上限", 1400);
+        sheet.AddRow("バイトオーダー", "リトルエンディアン");
+        sheet.AddRow();
+
+        sheet.AddHeader("Name", "Type", "Size(Bytes)", "Amount", "繰り返し", "最大(Bytes)",
+                        "長さ決定", "Units", "Description");
+
+        sheet.AddRow("magic", "uint32", 4, "1", "", 4, "固定", "",
+            "0x49434401。バイトオーダーを取り違えた受信側には 0x01444349 に見えるので、"
+            + "フィールドがずれたまま動き続ける前に先頭4バイトで弾ける。");
+        sheet.AddRow("classId", "uint16", 2, "1", "", 2, "固定", "",
+            "抽出概要シートの ID 列の値。ポートで分けていても、ポート設定ミスはこれで捕まる。");
+        sheet.AddRow("flags", "uint16", 2, "1", "", 2, "固定", "",
+            "bit0 を立てるとビッグエンディアンの意。現状は常に 0。残りは分割用に予約。");
+        sheet.AddRow("recordCount", "uint16", 2, "1", "", 2, "固定", "",
+            "後続のレコード件数。");
+        sheet.AddRow("reserved", "uint16", 2, "1", "", 2, "固定", "", "0 固定。");
+        sheet.AddRow("recordLen", "uint16", 2, "1", "i = 0..recordCount-1", null, "固定", "",
+            "各レコード本体の長さ。壊れた1件を飛ばして次に進めるのも、送信側が属性を増やしても"
+            + "受信側が次へ飛べるのも、この長さがあるため。");
+        sheet.AddRow("<レコード本体>", "", "可変", "1", "i = 0..recordCount-1", null, "", "",
+            "クラスごとの詳細シートを参照。中身はそのシートの行順に並ぶ。");
+
+        sheet.FrozenRows = 5;
+        sheet.WrapColumn(9);
     }
 
     /// <summary>

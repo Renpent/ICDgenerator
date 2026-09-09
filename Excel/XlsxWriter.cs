@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.IO.Compression;
 using System.Text;
 
@@ -75,7 +75,11 @@ public sealed class XlsxWorkbook
             XlsxSheet.AppendEscaped(sb, _sheets[i].Name);
             sb.Append($"\" sheetId=\"{i + 1}\" r:id=\"rId{i + 1}\"/>");
         }
-        return sb.Append("</sheets></workbook>").ToString();
+        sb.Append("</sheets>");
+        // Formula cells are written without a cached result, so Excel is asked to work them out
+        // when the file opens rather than showing an empty cell until something forces a recalc.
+        sb.Append("<calcPr calcId=\"0\" fullCalcOnLoad=\"1\"/>");
+        return sb.Append("</workbook>").ToString();
     }
 
     string BuildWorkbookRels()

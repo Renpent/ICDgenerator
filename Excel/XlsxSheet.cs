@@ -1,7 +1,21 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text;
 
 namespace ICDgenerator.Excel;
+
+/// <summary>
+/// A cell holding a formula rather than a value — <c>'抽出概要'!B2</c> and the like. Written without
+/// a cached result, which is why the workbook sets fullCalcOnLoad.
+/// </summary>
+/// <param name="Expression">The formula without its leading '='.</param>
+public sealed record XlsxFormula(string Expression);
+
+/// <summary>Refers to a cell on another sheet, quoting the name the way Excel does.</summary>
+public static class XlsxRef
+{
+    public static XlsxFormula ToCell(string sheetName, string column, int row) =>
+        new($"'{sheetName.Replace("'", "''")}'!{column}{row}");
+}
 
 /// <summary>One worksheet. Rows are buffered and serialised when the workbook is saved.</summary>
 public sealed class XlsxSheet
@@ -22,8 +36,18 @@ public sealed class XlsxSheet
 
     public string Name { get; }
 
+    /// <summary>
+    /// How many leading rows stay visible while scrolling. Usually 1, but a sheet that carries a
+    /// few identification rows above its table freezes down to the table's header instead.
+    /// </summary>
+    public int FrozenRows { get; set; }
+
     /// <summary>Keeps row 1 visible while scrolling.</summary>
-    public bool FreezeHeader { get; set; }
+    public bool FreezeHeader
+    {
+        get => FrozenRows > 0;
+        set => FrozenRows = value ? 1 : 0;
+    }
 
     /// <summary>Puts filter dropdowns on row 1, spanning the used range.</summary>
     public bool AutoFilter { get; set; }
@@ -67,9 +91,11 @@ public sealed class XlsxSheet
         sb.Append($"<dimension ref=\"A1:{lastCell}\"/>");
 
         sb.Append("<sheetViews><sheetView workbookViewId=\"0\">");
-        if (FreezeHeader)
+        if (FrozenRows > 0)
         {
-            sb.Append("<pane ySplit=\"1\" topLeftCell=\"A2\" activePane=\"bottomLeft\" state=\"frozen\"/>");
+            // Integers only, so no culture is involved.
+            sb.Append($"<pane ySplit=\"{FrozenRows}\" topLeftCell=\"A{FrozenRows + 1}\"")
+              .Append(" activePane=\"bottomLeft\" state=\"frozen\"/>");
         }
         sb.Append("</sheetView></sheetViews>");
         sb.Append("<sheetFormatPr defaultRowHeight=\"15\"/>");
@@ -158,6 +184,7 @@ public sealed class XlsxSheet
     static string CellText(object? value) => value switch
     {
         null => "",
+        XlsxFormula => "",
         bool b => b ? "TRUE" : "FALSE",
         _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? ""
     };
@@ -206,6 +233,14 @@ public sealed class XlsxSheet
         {
             case null:
                 sb.Append($"<c r=\"{reference}\" s=\"{style}\"/>");
+                return;
+
+            case XlsxFormula formula:
+                // No cached <v>: the workbook asks Excel to calculate on load, so a value written
+                // here would only be a second thing to keep in step with the expression.
+                sb.Append($"<c r=\"{reference}\" s=\"{style}\"><f>");
+                AppendEscaped(sb, formula.Expression);
+                sb.Append("</f></c>");
                 return;
 
             case int or long or short or byte or double or float or decimal:
