@@ -3,10 +3,16 @@
 // Hand-written and copied out verbatim by the generator; nothing here is derived from a FOM.
 // C++11, no dependencies beyond the standard library, no platform headers.
 //
-// Byte order is little-endian, fixed. That is a property of the datagram the ICD specifies, not of
-// the machine, so it is not a build option: reading a byte at a time makes it independent of the
-// host's own byte order and avoids unaligned access, and compilers fold the pattern back into a
-// single load. If a layout ever needs big-endian, regenerate — do not add an #ifdef.
+// Byte order is big-endian, fixed. That is a property of the datagram the ICD specifies, not of the
+// machine, so it is not a build option: reading a byte at a time makes it independent of the host's
+// own byte order and avoids unaligned access, and compilers fold the pattern back into a single
+// load plus a bswap. If a layout ever needs little-endian, change these six functions — nothing
+// else in the generated tree encodes an order — and do not add an #ifdef.
+//
+// Big-endian because reading a byte at a time costs the same either way, which removes the only
+// argument little-endian had here, and what is left favours the network convention: a hex dump or a
+// Wireshark capture reads in the order the field is written, and the magic word shows up as the
+// ASCII "ICD" rather than reversed.
 
 // Identifiers here deliberately avoid the prefix that generated type names carry. That prefix exists
 // so a project can search-and-replace it and point these codecs at its own HLA-generated type
@@ -42,41 +48,45 @@ enum : size_t { kCountSize = 2 };
 
 // ---------------------------------------------------------------------------
 // Raw loads and stores
+//
+// The six multi-byte functions below are the only place an order is decided. Nothing in the
+// generated tree spells one out, so swapping the datagram to little-endian means editing these and
+// nothing else.
 // ---------------------------------------------------------------------------
 
 inline uint8_t loadU8(const unsigned char* p) { return p[0]; }
 
 inline uint16_t loadU16(const unsigned char* p) {
-    return static_cast<uint16_t>(static_cast<unsigned>(p[0]) |
-                                 (static_cast<unsigned>(p[1]) << 8));
+    return static_cast<uint16_t>((static_cast<unsigned>(p[0]) << 8) |
+                                 static_cast<unsigned>(p[1]));
 }
 
 inline uint32_t loadU32(const unsigned char* p) {
-    return static_cast<uint32_t>(p[0]) | (static_cast<uint32_t>(p[1]) << 8) |
-           (static_cast<uint32_t>(p[2]) << 16) | (static_cast<uint32_t>(p[3]) << 24);
+    return (static_cast<uint32_t>(p[0]) << 24) | (static_cast<uint32_t>(p[1]) << 16) |
+           (static_cast<uint32_t>(p[2]) << 8) | static_cast<uint32_t>(p[3]);
 }
 
 inline uint64_t loadU64(const unsigned char* p) {
-    return static_cast<uint64_t>(loadU32(p)) | (static_cast<uint64_t>(loadU32(p + 4)) << 32);
+    return (static_cast<uint64_t>(loadU32(p)) << 32) | static_cast<uint64_t>(loadU32(p + 4));
 }
 
 inline void storeU8(unsigned char* p, uint8_t v) { p[0] = v; }
 
 inline void storeU16(unsigned char* p, uint16_t v) {
-    p[0] = static_cast<unsigned char>(v & 0xFFu);
-    p[1] = static_cast<unsigned char>((v >> 8) & 0xFFu);
+    p[0] = static_cast<unsigned char>((v >> 8) & 0xFFu);
+    p[1] = static_cast<unsigned char>(v & 0xFFu);
 }
 
 inline void storeU32(unsigned char* p, uint32_t v) {
-    p[0] = static_cast<unsigned char>(v & 0xFFu);
-    p[1] = static_cast<unsigned char>((v >> 8) & 0xFFu);
-    p[2] = static_cast<unsigned char>((v >> 16) & 0xFFu);
-    p[3] = static_cast<unsigned char>((v >> 24) & 0xFFu);
+    p[0] = static_cast<unsigned char>((v >> 24) & 0xFFu);
+    p[1] = static_cast<unsigned char>((v >> 16) & 0xFFu);
+    p[2] = static_cast<unsigned char>((v >> 8) & 0xFFu);
+    p[3] = static_cast<unsigned char>(v & 0xFFu);
 }
 
 inline void storeU64(unsigned char* p, uint64_t v) {
-    storeU32(p, static_cast<uint32_t>(v & 0xFFFFFFFFu));
-    storeU32(p + 4, static_cast<uint32_t>((v >> 32) & 0xFFFFFFFFu));
+    storeU32(p, static_cast<uint32_t>((v >> 32) & 0xFFFFFFFFu));
+    storeU32(p + 4, static_cast<uint32_t>(v & 0xFFFFFFFFu));
 }
 
 // Floating point goes through memcpy. A union or a reinterpret_cast violates strict aliasing and
@@ -355,9 +365,9 @@ inline size_t encodedSize(const std::vector<bool>& v) {
 // ---------------------------------------------------------------------------
 // Datagram framing
 //
-//   magic       uint32  0x49434401
+//   magic       uint32  0x49434401, which lands in a dump as the ASCII "ICD" and a version byte
 //   classId     uint16  the ICD's ID column, checked against what the reader expects
-//   flags       uint16  bit 0 set would mean big-endian; reserved otherwise
+//   flags       uint16  bit 0 set would mean little-endian; reserved otherwise
 //   recordCount uint16
 //   reserved    uint16
 //   then recordCount times: recordLen uint16, followed by the record body

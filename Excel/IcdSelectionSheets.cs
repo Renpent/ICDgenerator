@@ -187,19 +187,21 @@ public static partial class IcdExporter
 
         sheet.AddRow("データグラム", "同一クラスのレコードを詰めた1つのUDPペイロード。");
         sheet.AddRow("ペイロード上限", 1400);
-        sheet.AddRow("バイトオーダー", "リトルエンディアン");
+        sheet.AddRow("バイトオーダー", "ビッグエンディアン（ネットワークバイトオーダー）");
         sheet.AddRow();
 
         sheet.AddHeader("Name", "Type", "Size(Bytes)", "Amount", "繰り返し", "最大(Bytes)",
                         "長さ決定", "Units", "Description");
 
         sheet.AddRow("magic", "uint32", 4, "1", "", 4, "固定", "",
-            "0x49434401。バイトオーダーを取り違えた受信側には 0x01444349 に見えるので、"
+            "0x49434401。ダンプでは 49 43 44 01 = ASCII の \"ICD\" + 版番号として読める。"
+            + "バイトオーダーを取り違えた受信側には 0x01444349 に見えるので、"
             + "フィールドがずれたまま動き続ける前に先頭4バイトで弾ける。");
         sheet.AddRow("classId", "uint16", 2, "1", "", 2, "固定", "",
             "抽出概要シートの ID 列の値。ポートで分けていても、ポート設定ミスはこれで捕まる。");
         sheet.AddRow("flags", "uint16", 2, "1", "", 2, "固定", "",
-            "bit0 を立てるとビッグエンディアンの意。現状は常に 0。残りは分割用に予約。");
+            "bit0 を立てるとリトルエンディアンの意。現状は常に 0（＝ビッグエンディアン）。"
+            + "残りは分割用に予約。");
         sheet.AddRow("recordCount", "uint16", 2, "1", "", 2, "固定", "",
             "後続のレコード件数。");
         sheet.AddRow("reserved", "uint16", 2, "1", "", 2, "固定", "", "0 固定。");

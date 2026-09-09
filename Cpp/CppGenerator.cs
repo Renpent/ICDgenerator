@@ -840,7 +840,7 @@ public sealed class CppGenerator
         sb.AppendLine("// 自動生成 — 編集しないこと。");
         sb.AppendLine($"// {subject}");
         sb.AppendLine("//");
-        sb.AppendLine("// ICDgenerator が FOM から生成。バイトオーダーはリトルエンディアン。");
+        sb.AppendLine("// ICDgenerator が FOM から生成。バイトオーダーはビッグエンディアン。");
         sb.AppendLine();
     }
 
