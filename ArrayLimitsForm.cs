@@ -1,4 +1,4 @@
-using ICDgenerator.Fom;
+﻿using ICDgenerator.Fom;
 
 namespace ICDgenerator;
 
@@ -34,8 +34,8 @@ public sealed class ArrayLimitsForm : Form
             Dock = DockStyle.Top,
             Height = 40,
             Padding = new Padding(8, 6, 8, 0),
-            Text = "FOMは可変長配列の上限を定めていません。ICDの最大サイズはここで決めた値から計算されます。\n"
-                 + "空欄の型には既定値が適用されます。実際の要素数は _Count 行で送られるので、上限は器の大きさです。"
+            Text = "FOMは可変長配列の上限を定めていません。レコードは常にこの上限ぶんの領域を取ります。\n"
+                 + "空欄の型には既定値が適用されます。実際の要素数は _Count で送られるので、上限は器の大きさです。"
         };
 
         var defaultPanel = new FlowLayoutPanel
@@ -69,11 +69,12 @@ public sealed class ArrayLimitsForm : Form
         _grid.RowHeadersVisible = false;
         _grid.SelectionMode = DataGridViewSelectionMode.CellSelect;
         _grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
-        _grid.Columns.Add(Column("type", "配列型", readOnly: true, fill: 46));
-        _grid.Columns.Add(Column("element", "要素", readOnly: true, fill: 26));
-        _grid.Columns.Add(Column("size", "要素Bytes", readOnly: true, fill: 12));
-        _grid.Columns.Add(Column("limit", "上限", readOnly: false, fill: 12));
-        _grid.Columns.Add(Column("max", "最大Bytes", readOnly: true, fill: 14));
+        _grid.Columns.Add(Column("type", "配列型", readOnly: true, fill: 40));
+        _grid.Columns.Add(Column("source", "出所", readOnly: true, fill: 8));
+        _grid.Columns.Add(Column("element", "要素", readOnly: true, fill: 24));
+        _grid.Columns.Add(Column("size", "要素Bytes", readOnly: true, fill: 11));
+        _grid.Columns.Add(Column("limit", "上限", readOnly: false, fill: 10));
+        _grid.Columns.Add(Column("max", "領域Bytes", readOnly: true, fill: 13));
         _grid.CellEndEdit += (_, e) => Commit(e.RowIndex);
 
         Controls.Add(_grid);
@@ -97,19 +98,29 @@ public sealed class ArrayLimitsForm : Form
 
     void Populate(FomModel model, FomTypeResolver resolver)
     {
-        // Every dynamic array in the FOM, not only those the current selection reaches: a limit is a
-        // federation-wide agreement, and it should not appear and disappear as classes are ticked.
-        var arrays = model.DataTypes.Values
-            .Where(t => t.Kind == FomDataTypeKind.Array && !int.TryParse(t.Cardinality, out _))
-            .OrderBy(t => t.Name, StringComparer.Ordinal);
+        // Every dynamic array in reach, not only those the current selection uses: a limit is a
+        // federation-wide agreement and should not appear and disappear as classes are ticked.
+        //
+        // The standard MIM's arrays belong here too — HLAASCIIstring, HLAopaqueData and the rest are
+        // as unbounded as any the FOM declares, and a class referencing one would otherwise take the
+        // default with nothing on screen to say so. A name the FOM redefines is the FOM's.
+        var arrays = model.DataTypes.Values.Select(t => (Type: t, Source: "FOM"))
+            .Concat(model.StandardDataTypes.Values
+                .Where(t => !model.DataTypes.ContainsKey(t.Name))
+                .Select(t => (Type: t, Source: "MIM")))
+            .Where(x => x.Type.Kind == FomDataTypeKind.Array
+                        && !int.TryParse(x.Type.Cardinality, out _))
+            .OrderBy(x => x.Source, StringComparer.Ordinal)
+            .ThenBy(x => x.Type.Name, StringComparer.Ordinal);
 
-        foreach (var array in arrays)
+        foreach (var (array, source) in arrays)
         {
             var size = resolver.Resolve(array.ElementDataType).SizeInBytes;
             _elementSize[array.Name] = size;
 
             int row = _grid.Rows.Add(
                 array.Name,
+                source,
                 array.ElementDataType,
                 size is int bytes ? bytes : "可変",
                 _limits.IsExplicit(array.Name) ? _limits.For(array.Name).ToString() : "",
@@ -157,7 +168,7 @@ public sealed class ArrayLimitsForm : Form
 
         _grid.Rows[row].Cells["max"].Value = _elementSize[name] is int size
             ? (long)size * limit + 2  // the 2-byte count travels with the array
-            : "可変";
+            : "可変";  // an element holding an array of its own; its own limit decides the rest
 
         // A limit left at the default is worth seeing as such, since one edit to the default moves
         // every one of them at once.
