@@ -36,6 +36,7 @@ public sealed class CppGenerator
     const string RuntimeResource = "ICDgenerator.Cpp.Runtime.icd_codec.h";
     const string RuntimeFile = "icd_codec.h";
     const string TypesFile = "icd_types";
+    const string ClassesFile = "icd_classes.h";
 
     /// <summary>Namespace for generated code, kept apart from the runtime's own.</summary>
     const string Namespace = "icdfom";
@@ -119,6 +120,7 @@ public sealed class CppGenerator
         WriteRuntime(directory);
         WriteTypes(directory);
         foreach (var cls in classes) WriteClass(directory, cls);
+        WriteClassIndex(directory, classes);
 
         return _result;
     }
@@ -809,6 +811,47 @@ public sealed class CppGenerator
             && type.Kind is FomDataTypeKind.Enumerated or FomDataTypeKind.FixedRecord
                 ? $"{ExternalNamespace}::{_typeNames[memberTypeName]}::"
                 : "icd::";
+    }
+
+    /// <summary>
+    /// One header that pulls in every class, so the file wiring the gateway together names it once
+    /// instead of listing the classes — and cannot fall out of step with the ICD when a class is
+    /// added or dropped, being generated from the same selection.
+    ///
+    /// The usual objection to an umbrella header is that it makes everything depend on everything,
+    /// so touching one class rebuilds the lot. It does not bite here: this directory is regenerated
+    /// wholesale, never edited, so a change arrives as every file at once and a finer dependency
+    /// graph would save nothing. The weight is small either way — a class header is a thin shell
+    /// over the shared icd_types.h, about 40 preprocessed lines against the 14,000 that
+    /// &lt;vector&gt; alone costs.
+    ///
+    /// It is for the wiring, not for general use: code that touches one class should include that
+    /// class.
+    /// </summary>
+    void WriteClassIndex(string directory, IReadOnlyList<GenClass> classes)
+    {
+        var guard = "ICDFOM_CLASSES_H";
+        var header = new StringBuilder();
+
+        Banner(header, "選択した全クラス");
+        header.AppendLine($"#ifndef {guard}");
+        header.AppendLine($"#define {guard}");
+        header.AppendLine();
+        header.AppendLine("// 配線用のまとめ include。個々のクラスだけを扱うコードは、そのクラスの");
+        header.AppendLine("// ヘッダを直接 include すること。");
+        header.AppendLine();
+
+        foreach (var cls in classes)
+        {
+            var name = _typeNames[cls.FullName];
+            var id = Bindings.IdOf(cls.FullName) is int classId ? $"ID {classId}" : "ID 未設定";
+            header.AppendLine($"#include \"{name}.h\"  // {id} : {cls.FullName}");
+        }
+
+        header.AppendLine();
+        header.AppendLine($"#endif  // {guard}");
+
+        Save(directory, ClassesFile, header);
     }
 
     void WriteClass(string directory, GenClass cls)
