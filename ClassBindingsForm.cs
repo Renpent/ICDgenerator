@@ -30,6 +30,7 @@ public sealed class ClassBindingsForm : Form
     readonly CheckBox _overwrite = new();
     readonly CheckBox _selectedOnly = new();
     readonly Label _summary = new();
+    readonly ToolTip _tip = new();
 
     /// <param name="selected">
     /// Full names of the classes ticked in the main window. Numbering starts scoped to these.
@@ -41,8 +42,8 @@ public sealed class ClassBindingsForm : Form
 
         Text = "クラスの ID / Port / Rate";
         StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(820, 520);
-        MinimumSize = new Size(640, 380);
+        ClientSize = new Size(820, 560);
+        MinimumSize = new Size(700, 420);
 
         var note = new Label
         {
@@ -56,11 +57,32 @@ public sealed class ClassBindingsForm : Form
                  + "「連番を振る」は表示中の行に振ります。既定では選択したクラスだけが表示されています。"
         };
 
-        var bottom = new FlowLayoutPanel
+        // Two rows, not one. A single FlowLayoutPanel held everything, and at the default width the
+        // buttons wrapped onto a second line the panel was too short to show — OK sat off the bottom
+        // until the window was widened. Splitting the controls from the buttons means neither row
+        // can push the other out of view.
+        var numbering = new FlowLayoutPanel
         {
             Dock = DockStyle.Bottom,
-            Height = 44,
-            Padding = new Padding(8, 8, 8, 8)
+            Height = 40,
+            WrapContents = false,
+            Padding = new Padding(8, 6, 8, 0)
+        };
+
+        // Docked, not flowed and not anchored. Flowing put the summary — which grows when it has
+        // duplicates to name — onto a second line the panel was too short to show, so it vanished;
+        // anchoring it Left|Right then stretched it by however much the panel grew when *it* was
+        // docked, which is 620px it did not have when the size was computed, and the label ended up
+        // covering the buttons. Docking asks for neither number: the buttons take the right edge,
+        // the summary takes what is left, whatever the width turns out to be.
+        var buttons = new Panel { Dock = DockStyle.Bottom, Height = 44 };
+        var buttonFlow = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Right,
+            FlowDirection = FlowDirection.RightToLeft,
+            WrapContents = false,
+            AutoSize = true,
+            Padding = new Padding(0, 8, 8, 8)
         };
 
         _target.DropDownStyle = ComboBoxStyle.DropDownList;
@@ -89,22 +111,38 @@ public sealed class ClassBindingsForm : Form
         _selectedOnly.Enabled = _selected.Count > 0;
         _selectedOnly.CheckedChanged += (_, _) => ApplyFilter();
 
-        var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, Width = 90 };
-        var cancel = new Button { Text = "キャンセル", DialogResult = DialogResult.Cancel, Width = 90 };
+        var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, Size = new Size(90, 26) };
+        var cancel = new Button
+        {
+            Text = "キャンセル",
+            DialogResult = DialogResult.Cancel,
+            Size = new Size(90, 26)
+        };
 
-        _summary.AutoSize = true;
-        _summary.Padding = new Padding(16, 6, 16, 0);
+        // Takes whatever the buttons leave, and truncates rather than growing: a long run of
+        // duplicate numbers is cut short with an ellipsis. The full text is on the tooltip, the
+        // offending cells are shaded in the grid, and the numbers are logged on save.
+        _summary.AutoSize = false;
+        _summary.AutoEllipsis = true;
+        _summary.Dock = DockStyle.Fill;
+        _summary.TextAlign = ContentAlignment.MiddleRight;
+        _summary.Padding = new Padding(12, 0, 12, 0);
 
-        bottom.Controls.Add(new Label { Text = "対象:", AutoSize = true, Padding = new Padding(0, 6, 4, 0) });
-        bottom.Controls.Add(_target);
-        bottom.Controls.Add(new Label { Text = "開始:", AutoSize = true, Padding = new Padding(8, 6, 4, 0) });
-        bottom.Controls.Add(_start);
-        bottom.Controls.Add(fill);
-        bottom.Controls.Add(_selectedOnly);
-        bottom.Controls.Add(_overwrite);
-        bottom.Controls.Add(_summary);
-        bottom.Controls.Add(ok);
-        bottom.Controls.Add(cancel);
+        numbering.Controls.Add(new Label { Text = "対象:", AutoSize = true, Padding = new Padding(0, 6, 4, 0) });
+        numbering.Controls.Add(_target);
+        numbering.Controls.Add(new Label { Text = "開始:", AutoSize = true, Padding = new Padding(8, 6, 4, 0) });
+        numbering.Controls.Add(_start);
+        numbering.Controls.Add(fill);
+        numbering.Controls.Add(_selectedOnly);
+        numbering.Controls.Add(_overwrite);
+
+        buttonFlow.Controls.Add(cancel);
+        buttonFlow.Controls.Add(ok);
+
+        // Fill first, edge second: docking is applied in reverse of the order added, so the flow
+        // claims the right edge before the summary is given the remainder.
+        buttons.Controls.Add(_summary);
+        buttons.Controls.Add(buttonFlow);
 
         _grid.Dock = DockStyle.Fill;
         _grid.AllowUserToAddRows = false;
@@ -121,7 +159,8 @@ public sealed class ClassBindingsForm : Form
         _grid.CellEndEdit += (_, e) => Commit(e.RowIndex);
 
         Controls.Add(_grid);
-        Controls.Add(bottom);
+        Controls.Add(numbering);
+        Controls.Add(buttons);
         Controls.Add(note);
         AcceptButton = ok;
         CancelButton = cancel;
@@ -320,6 +359,7 @@ public sealed class ClassBindingsForm : Form
         _summary.ForeColor = duplicateIds.Count + duplicatePorts.Count > 0
             ? Color.Firebrick
             : SystemColors.ControlText;
+        _tip.SetToolTip(_summary, text);
     }
 
     static void Flag(DataGridViewRow row, string column, bool duplicate)
