@@ -423,7 +423,8 @@ namespace ICDgenerator
             // Edited on a copy so cancelling really cancels.
             var working = _bindings.Clone();
 
-            using var dialog = new ClassBindingsForm(_model, working);
+            using var dialog = new ClassBindingsForm(_model, working,
+                CurrentSelections().Select(sel => sel.FullName));
             if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
             _bindings = working;

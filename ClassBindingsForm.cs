@@ -11,21 +11,33 @@ namespace ICDgenerator;
 /// C++.
 ///
 /// **Every publishable class is listed, not only the ticked ones.** A class id is an agreement
-/// between the two ends of the wire; if the list followed the selection, ids would shift as classes
-/// were ticked and a number already fielded could quietly come to mean something else.
+/// between the two ends of the wire, and one already fielded must stay put; being able to see and
+/// edit any class's id — and to spot a duplicate against a class not currently ticked — is what
+/// keeps that possible.
+///
+/// Numbering, though, works on what is *shown*: the list starts filtered to the ticked classes,
+/// because those are the ones being carried, and untucking the filter widens the run to everything.
+/// One rule — "連番を振る numbers the rows you can see" — rather than a separate scope to reason
+/// about.
 /// </summary>
 public sealed class ClassBindingsForm : Form
 {
     readonly ClassBindings _bindings;
+    readonly HashSet<string> _selected;
     readonly DataGridView _grid = new();
     readonly NumericUpDown _start = new();
     readonly ComboBox _target = new();
     readonly CheckBox _overwrite = new();
+    readonly CheckBox _selectedOnly = new();
     readonly Label _summary = new();
 
-    public ClassBindingsForm(FomModel model, ClassBindings bindings)
+    /// <param name="selected">
+    /// Full names of the classes ticked in the main window. Numbering starts scoped to these.
+    /// </param>
+    public ClassBindingsForm(FomModel model, ClassBindings bindings, IEnumerable<string> selected)
     {
         _bindings = bindings;
+        _selected = new HashSet<string>(selected, StringComparer.Ordinal);
 
         Text = "クラスの ID / Port / Rate";
         StartPosition = FormStartPosition.CenterParent;
@@ -41,7 +53,7 @@ public sealed class ClassBindingsForm : Form
                  + "両端で一致していないと通信できません。\n"
                  + "Port と Rate は ICD シートに書かれるだけで、生成コードには入りません"
                  + "（配備先で変わるものなので、変更に再生成を要求しないためです）。\n"
-                 + "空欄のままでも生成はできます。その場合 ID は実行時引数のままになります。"
+                 + "「連番を振る」は表示中の行に振ります。既定では選択したクラスだけが表示されています。"
         };
 
         var bottom = new FlowLayoutPanel
@@ -68,6 +80,15 @@ public sealed class ClassBindingsForm : Form
         _overwrite.AutoSize = true;
         _overwrite.Padding = new Padding(8, 4, 8, 0);
 
+        _selectedOnly.Text = "選択したクラスのみ";
+        _selectedOnly.AutoSize = true;
+        _selectedOnly.Padding = new Padding(8, 4, 0, 0);
+        // Nothing ticked in the main window would filter the list down to nothing, which reads as a
+        // broken dialog rather than an empty selection.
+        _selectedOnly.Checked = _selected.Count > 0;
+        _selectedOnly.Enabled = _selected.Count > 0;
+        _selectedOnly.CheckedChanged += (_, _) => ApplyFilter();
+
         var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, Width = 90 };
         var cancel = new Button { Text = "キャンセル", DialogResult = DialogResult.Cancel, Width = 90 };
 
@@ -79,6 +100,7 @@ public sealed class ClassBindingsForm : Form
         bottom.Controls.Add(new Label { Text = "開始:", AutoSize = true, Padding = new Padding(8, 6, 4, 0) });
         bottom.Controls.Add(_start);
         bottom.Controls.Add(fill);
+        bottom.Controls.Add(_selectedOnly);
         bottom.Controls.Add(_overwrite);
         bottom.Controls.Add(_summary);
         bottom.Controls.Add(ok);
@@ -90,8 +112,9 @@ public sealed class ClassBindingsForm : Form
         _grid.RowHeadersVisible = false;
         _grid.SelectionMode = DataGridViewSelectionMode.CellSelect;
         _grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
-        _grid.Columns.Add(Column("name", "クラス", readOnly: true, fill: 58));
-        _grid.Columns.Add(Column("kind", "種別", readOnly: true, fill: 14));
+        _grid.Columns.Add(Column("name", "クラス", readOnly: true, fill: 52));
+        _grid.Columns.Add(Column("kind", "種別", readOnly: true, fill: 13));
+        _grid.Columns.Add(Column("picked", "選択", readOnly: true, fill: 7));
         _grid.Columns.Add(Column("id", "ID", readOnly: false, fill: 9));
         _grid.Columns.Add(Column("port", "Port", readOnly: false, fill: 10));
         _grid.Columns.Add(Column("rate", "Rate(Hz)", readOnly: false, fill: 12));
@@ -104,6 +127,7 @@ public sealed class ClassBindingsForm : Form
         CancelButton = cancel;
 
         Populate(model);
+        ApplyFilter();
     }
 
     static DataGridViewTextBoxColumn Column(string name, string header, bool readOnly, int fill) =>
@@ -139,10 +163,27 @@ public sealed class ClassBindingsForm : Form
     {
         var binding = _bindings.For(fullName);
         int row = _grid.Rows.Add(fullName, kind,
+            _selected.Contains(fullName) ? "✓" : "",
             binding?.Id?.ToString() ?? "",
             binding?.Port?.ToString() ?? "",
             binding?.Rate?.ToString() ?? "");
         _grid.Rows[row].Tag = fullName;
+    }
+
+    /// <summary>Shows either the ticked classes or all of them; this is also what numbering walks.</summary>
+    void ApplyFilter()
+    {
+        bool only = _selectedOnly.Checked;
+
+        // A hidden row cannot be the current cell, and leaving it as such throws.
+        _grid.CurrentCell = null;
+
+        foreach (DataGridViewRow row in _grid.Rows)
+        {
+            row.Visible = !only || _selected.Contains((string)row.Tag!);
+        }
+
+        Recalculate();
     }
 
     void Commit(int row)
@@ -195,11 +236,14 @@ public sealed class ClassBindingsForm : Form
     }
 
     /// <summary>
-    /// Numbers the chosen column down the list from the starting value.
+    /// Numbers the chosen column down the visible rows from the starting value.
     ///
     /// Blanks only unless 上書き is ticked, which is what keeps an id stable once it has been
     /// fielded: adding a class later gives it the next free number instead of shifting everyone
     /// below it onto numbers that already mean something else.
+    ///
+    /// Numbers already in use — including on rows the filter is hiding — are stepped over, so a run
+    /// scoped to the selection cannot collide with a class that is not currently ticked.
     /// </summary>
     void AutoNumber()
     {
@@ -208,19 +252,31 @@ public sealed class ClassBindingsForm : Form
         long next = (long)_start.Value;
         int filled = 0;
 
+        // Numbers that will still be in use after this run: every hidden row keeps its own, and so
+        // does every visible one unless 上書き is on. Seeding the set with exactly those is what
+        // stops the run landing on one — including a value held further down the list, which simply
+        // advancing past what has been seen would walk straight into.
+        //
+        // It must not include the rows about to be reassigned, or an overwrite would skip past the
+        // very numbers it is replacing and start above them instead of at the starting value.
+        var taken = new HashSet<int>(_grid.Rows.Cast<DataGridViewRow>()
+            .Where(r => !r.Visible || !overwrite)
+            .Select(r => _bindings.For((string)r.Tag!))
+            .OfType<ClassBinding>()
+            .Select(b => port ? b.Port : b.Id)
+            .OfType<int>());
+
         foreach (DataGridViewRow row in _grid.Rows)
         {
+            if (!row.Visible) continue;
+
             var fullName = (string)row.Tag!;
             var binding = _bindings.For(fullName)?.Clone() ?? new ClassBinding();
             var current = port ? binding.Port : binding.Id;
 
-            if (current is not null && !overwrite)
-            {
-                // Skipping past a number already in use keeps the run free of collisions.
-                if (current.Value >= next) next = current.Value + 1;
-                continue;
-            }
+            if (current is not null && !overwrite) continue;
 
+            while (taken.Contains((int)next)) ++next;
             if (next > 65535) break;
 
             if (port) binding.Port = (int)next;
@@ -254,8 +310,8 @@ public sealed class ClassBindingsForm : Form
             Flag(row, "port", binding?.Port is int p && duplicatePorts.Contains(p));
         }
 
-        var assigned = _bindings.AssignedCount;
-        var text = $"{_grid.Rows.Count} クラス中 {assigned} 件に ID";
+        int shown = _grid.Rows.Cast<DataGridViewRow>().Count(r => r.Visible);
+        var text = $"表示 {shown} / 全 {_grid.Rows.Count} クラス　ID {_bindings.AssignedCount} 件";
 
         if (duplicateIds.Count > 0) text += $"　⚠ ID重複: {string.Join(", ", duplicateIds)}";
         if (duplicatePorts.Count > 0) text += $"　⚠ Port重複: {string.Join(", ", duplicatePorts)}";
