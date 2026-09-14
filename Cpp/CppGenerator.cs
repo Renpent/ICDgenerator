@@ -436,7 +436,8 @@ public sealed class CppGenerator
         header.AppendLine("// argument-dependent lookup; these are not, so they are named explicitly.");
         header.AppendLine("using icd::decode;");
         header.AppendLine("using icd::encode;");
-        header.AppendLine("using icd::encodedSize;");
+        header.AppendLine("using icd::fixedSize;");
+        header.AppendLine("using icd::wireSize;");
         header.AppendLine();
 
         body.AppendLine($"namespace {Namespace} {{");
@@ -523,7 +524,8 @@ public sealed class CppGenerator
         header.AppendLine($"namespace {Namespace} {{");
         header.AppendLine("using icd::decode;");
         header.AppendLine("using icd::encode;");
-        header.AppendLine("using icd::encodedSize;");
+        header.AppendLine("using icd::fixedSize;");
+        header.AppendLine("using icd::wireSize;");
         header.AppendLine($"}}  // namespace {Namespace}");
 
         body.AppendLine("// コーデックの定義。宣言は icd_types.h 側にある。");
@@ -545,7 +547,6 @@ public sealed class CppGenerator
         header.AppendLine("}");
         header.AppendLine($"inline void encode(icd::Writer& w, {name} v) "
             + $"{{ icd::encode(w, static_cast<{underlying}>(v)); }}");
-        header.AppendLine($"[[nodiscard]] inline std::size_t encodedSize({name}) {{ return {width}; }}");
         header.AppendLine($"}} }}  // namespace {ExternalNamespace}::{name}");
         header.AppendLine();
     }
@@ -560,7 +561,6 @@ public sealed class CppGenerator
         header.AppendLine($"namespace {ExternalNamespace} {{ namespace {name} {{");
         header.AppendLine($"[[nodiscard]] icd::Result decode(icd::Reader& r, {name}& v);");
         header.AppendLine($"void encode(icd::Writer& w, const {name}& v);");
-        header.AppendLine($"[[nodiscard]] std::size_t encodedSize(const {name}& v);");
         header.AppendLine($"}} }}  // namespace {ExternalNamespace}::{name}");
         header.AppendLine();
 
@@ -650,8 +650,6 @@ public sealed class CppGenerator
         header.AppendLine($"    icd::encode(w, static_cast<{underlying}>(v));");
         header.AppendLine("}");
         header.AppendLine();
-        header.AppendLine($"[[nodiscard]] inline std::size_t encodedSize({name}) {{ return {width}; }}");
-        header.AppendLine();
         header.AppendLine($"}}  // namespace {Namespace}");
         header.AppendLine("namespace icd {");
         header.AppendLine($"template <> struct FixedSize<{Namespace}::{name}> {{ static constexpr std::size_t value = {width}; }};");
@@ -703,7 +701,6 @@ public sealed class CppGenerator
         header.AppendLine();
         header.AppendLine($"[[nodiscard]] icd::Result decode(icd::Reader& r, {name}& v);");
         header.AppendLine($"void encode(icd::Writer& w, const {name}& v);");
-        header.AppendLine($"[[nodiscard]] std::size_t encodedSize(const {name}& v);");
         header.AppendLine();
 
         WriteCodecBody(body, name,
@@ -796,12 +793,6 @@ public sealed class CppGenerator
         body.AppendLine("}");
         body.AppendLine();
 
-        // Constant, because every array is written at its ceiling. Nothing to walk.
-        body.AppendLine($"std::size_t encodedSize(const {name}& v) {{");
-        body.AppendLine("    (void)v;");
-        body.AppendLine($"    return {size};");
-        body.AppendLine("}");
-        body.AppendLine();
     }
 
     /// <summary>
@@ -866,7 +857,6 @@ public sealed class CppGenerator
         header.AppendLine();
         header.AppendLine($"[[nodiscard]] icd::Result decode(icd::Reader& r, {name}& v);");
         header.AppendLine($"void encode(icd::Writer& w, const {name}& v);");
-        header.AppendLine($"[[nodiscard]] std::size_t encodedSize(const {name}& v);");
         header.AppendLine();
         header.AppendLine("/// Reads the records batched into one datagram.");
 

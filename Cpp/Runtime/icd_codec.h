@@ -1,11 +1,11 @@
-// icd_codec.h — runtime support for the generated ICD codecs.
+﻿// icd_codec.h — runtime support for the generated ICD codecs.
 //
 // Hand-written and copied out verbatim by the generator; nothing here is derived from a FOM.
 // C++17, no dependencies beyond the standard library, no platform headers.
 //
 // Every record is a fixed-size box. A dynamic array occupies its ceiling whatever it actually
 // carries — a count, then room for the agreed maximum, the tail zero-filled — so a class always
-// encodes to the same number of bytes. That is what makes encodedSize a constant, lets a datagram
+// encodes to the same number of bytes. That is what makes the size a constant, lets a datagram
 // state "N records of M bytes" once in its header, and puts record k at a computable offset. It
 // costs the unused tail of every array, which is the trade the ceilings exist to make.
 //
@@ -194,6 +194,13 @@ private:
 //
 // Every type occupies a constant number of bytes, arrays included — they are written at their
 // ceiling. Generated records carry kEncodedSize and the primary template picks it up.
+//
+// There used to be an encodedSize(value) overload beside every decode/encode pair, from when a
+// record's length depended on what was in it. Fixed-size records made all of them return a
+// constant and ignore their argument, and nothing called them; fixedSize<T> answers the same
+// question without needing a value, which is what the runtime itself needs — how many records fit
+// is worked out before there is a record to ask. wireSize(value) is the one function left for the
+// times a caller has a value rather than a type name.
 // ---------------------------------------------------------------------------
 
 template <class T>
@@ -222,6 +229,14 @@ struct FixedSize<std::array<T, N>> {
 template <class T>
 inline constexpr std::size_t fixedSize = FixedSize<T>::value;
 
+/// The same number for a value rather than a type name, so a caller holding a record does not have
+/// to spell out decltype and strip the reference off it. Not sizeof: this is the byte count on the
+/// wire, which for anything holding a std::vector is nothing like the object's own size.
+template <class T>
+[[nodiscard]] constexpr std::size_t wireSize(const T&) noexcept {
+    return fixedSize<T>;
+}
+
 // ---------------------------------------------------------------------------
 // Primitives
 // ---------------------------------------------------------------------------
@@ -235,8 +250,7 @@ inline constexpr std::size_t fixedSize = FixedSize<T>::value;
     }                                                                             \
     inline void encode(Writer& w, TYPE v) noexcept {                              \
         if (unsigned char* p = w.take(WIDTH)) STORE(p, v);                        \
-    }                                                                             \
-    [[nodiscard]] inline std::size_t encodedSize(TYPE) noexcept { return WIDTH; }
+    }
 
 ICDCODEC_PRIMITIVE(std::uint8_t, 1, loadU8, storeU8)
 ICDCODEC_PRIMITIVE(std::uint16_t, 2, loadU16, storeU16)
@@ -264,8 +278,6 @@ inline void encode(Writer& w, bool v) noexcept {
     encode(w, static_cast<std::uint8_t>(v ? 1 : 0));
 }
 
-[[nodiscard]] inline std::size_t encodedSize(bool) noexcept { return kBooleanSize; }
-
 // ---------------------------------------------------------------------------
 // Fixed-length arrays
 // ---------------------------------------------------------------------------
@@ -281,11 +293,6 @@ template <class T, std::size_t N>
 template <class T, std::size_t N>
 void encode(Writer& w, const std::array<T, N>& v) {
     for (std::size_t i = 0; i < N; ++i) encode(w, v[i]);
-}
-
-template <class T, std::size_t N>
-[[nodiscard]] std::size_t encodedSize(const std::array<T, N>&) noexcept {
-    return fixedSize<std::array<T, N>>;
 }
 
 // ---------------------------------------------------------------------------
