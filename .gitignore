@@ -15,8 +15,10 @@ RPR_FOM_v2.0_1516-2010.xml
 ## Generated ICD output
 *.xlsx
 
-## Per-FOM array ceilings, saved beside the FOM they belong to
+## Per-FOM settings, saved beside the FOM they belong to: array ceilings, and the
+## ID / Port / Rate each class was given
 *.arraylimits.json
+*.classbindings.json
 
 ## Claude Code guidance (local only)
 CLAUDE.md

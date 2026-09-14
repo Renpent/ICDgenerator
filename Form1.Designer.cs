@@ -45,6 +45,7 @@
             this.btnGenerate = new System.Windows.Forms.Button();
             this.btnGenerateCpp = new System.Windows.Forms.Button();
             this.btnArrayLimits = new System.Windows.Forms.Button();
+            this.btnClassBindings = new System.Windows.Forms.Button();
             this.lblTypePrefix = new System.Windows.Forms.Label();
             this.txtTypePrefix = new System.Windows.Forms.TextBox();
             this.txtLog = new System.Windows.Forms.TextBox();
@@ -99,7 +100,7 @@
             //
             this.lblTypePrefix.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
             this.lblTypePrefix.AutoSize = true;
-            this.lblTypePrefix.Location = new System.Drawing.Point(520, 53);
+            this.lblTypePrefix.Location = new System.Drawing.Point(640, 53);
             this.lblTypePrefix.Name = "lblTypePrefix";
             this.lblTypePrefix.TabIndex = 12;
             this.lblTypePrefix.Text = "HLA型の名前空間:";
@@ -107,7 +108,7 @@
             // txtTypePrefix
             //
             this.txtTypePrefix.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
-            this.txtTypePrefix.Location = new System.Drawing.Point(648, 49);
+            this.txtTypePrefix.Location = new System.Drawing.Point(768, 49);
             this.txtTypePrefix.Name = "txtTypePrefix";
             this.txtTypePrefix.Size = new System.Drawing.Size(180, 23);
             this.txtTypePrefix.TabIndex = 13;
@@ -131,7 +132,7 @@
             this.splitTrees.Name = "splitTrees";
             this.splitTrees.Panel1.Controls.Add(this.grpObjects);
             this.splitTrees.Panel2.Controls.Add(this.grpInteractions);
-            this.splitTrees.Size = new System.Drawing.Size(816, 330);
+            this.splitTrees.Size = new System.Drawing.Size(936, 330);
             this.splitTrees.SplitterDistance = 404;
             this.splitTrees.TabIndex = 5;
             //
@@ -162,7 +163,7 @@
             this.grpInteractions.Dock = System.Windows.Forms.DockStyle.Fill;
             this.grpInteractions.Location = new System.Drawing.Point(0, 0);
             this.grpInteractions.Name = "grpInteractions";
-            this.grpInteractions.Size = new System.Drawing.Size(408, 330);
+            this.grpInteractions.Size = new System.Drawing.Size(528, 330);
             this.grpInteractions.TabIndex = 0;
             this.grpInteractions.TabStop = false;
             this.grpInteractions.Text = "インタラクション";
@@ -173,7 +174,7 @@
             this.treeInteractions.Dock = System.Windows.Forms.DockStyle.Fill;
             this.treeInteractions.Location = new System.Drawing.Point(3, 19);
             this.treeInteractions.Name = "treeInteractions";
-            this.treeInteractions.Size = new System.Drawing.Size(402, 308);
+            this.treeInteractions.Size = new System.Drawing.Size(522, 308);
             this.treeInteractions.TabIndex = 0;
             this.treeInteractions.AfterCheck += new System.Windows.Forms.TreeViewEventHandler(this.tree_AfterCheck);
             //
@@ -210,23 +211,34 @@
             this.btnArrayLimits.UseVisualStyleBackColor = true;
             this.btnArrayLimits.Click += new System.EventHandler(this.btnArrayLimits_Click);
             //
+            // btnClassBindings
+            //
+            this.btnClassBindings.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left)));
+            this.btnClassBindings.Location = new System.Drawing.Point(370, 425);
+            this.btnClassBindings.Name = "btnClassBindings";
+            this.btnClassBindings.Size = new System.Drawing.Size(140, 26);
+            this.btnClassBindings.TabIndex = 8;
+            this.btnClassBindings.Text = "ID/Port/Rate...";
+            this.btnClassBindings.UseVisualStyleBackColor = true;
+            this.btnClassBindings.Click += new System.EventHandler(this.btnClassBindings_Click);
+            //
             // lblSelection
             //
             this.lblSelection.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left)));
             this.lblSelection.AutoSize = true;
-            this.lblSelection.Location = new System.Drawing.Point(374, 431);
+            this.lblSelection.Location = new System.Drawing.Point(520, 431);
             this.lblSelection.Name = "lblSelection";
             this.lblSelection.Size = new System.Drawing.Size(60, 15);
-            this.lblSelection.TabIndex = 8;
+            this.lblSelection.TabIndex = 9;
             this.lblSelection.Text = "選択なし";
             //
             // btnGenerate
             //
             this.btnGenerate.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
-            this.btnGenerate.Location = new System.Drawing.Point(538, 423);
+            this.btnGenerate.Location = new System.Drawing.Point(658, 423);
             this.btnGenerate.Name = "btnGenerate";
             this.btnGenerate.Size = new System.Drawing.Size(140, 30);
-            this.btnGenerate.TabIndex = 9;
+            this.btnGenerate.TabIndex = 10;
             this.btnGenerate.Text = "ICD生成";
             this.btnGenerate.UseVisualStyleBackColor = true;
             this.btnGenerate.Click += new System.EventHandler(this.btnGenerate_Click);
@@ -234,10 +246,10 @@
             // btnGenerateCpp
             //
             this.btnGenerateCpp.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
-            this.btnGenerateCpp.Location = new System.Drawing.Point(688, 423);
+            this.btnGenerateCpp.Location = new System.Drawing.Point(808, 423);
             this.btnGenerateCpp.Name = "btnGenerateCpp";
             this.btnGenerateCpp.Size = new System.Drawing.Size(140, 30);
-            this.btnGenerateCpp.TabIndex = 10;
+            this.btnGenerateCpp.TabIndex = 11;
             this.btnGenerateCpp.Text = "C++生成";
             this.btnGenerateCpp.UseVisualStyleBackColor = true;
             this.btnGenerateCpp.Click += new System.EventHandler(this.btnGenerateCpp_Click);
@@ -251,19 +263,20 @@
             this.txtLog.Name = "txtLog";
             this.txtLog.ReadOnly = true;
             this.txtLog.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
-            this.txtLog.Size = new System.Drawing.Size(816, 160);
+            this.txtLog.Size = new System.Drawing.Size(936, 160);
             this.txtLog.TabIndex = 11;
             //
             // Form1
             //
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(840, 633);
+            this.ClientSize = new System.Drawing.Size(960, 633);
             this.Controls.Add(this.txtLog);
             this.Controls.Add(this.btnGenerateCpp);
             this.Controls.Add(this.btnGenerate);
             this.Controls.Add(this.lblSelection);
             this.Controls.Add(this.txtTypePrefix);
             this.Controls.Add(this.lblTypePrefix);
+            this.Controls.Add(this.btnClassBindings);
             this.Controls.Add(this.btnArrayLimits);
             this.Controls.Add(this.btnClearSelection);
             this.Controls.Add(this.btnSelectPublishable);
@@ -273,7 +286,7 @@
             this.Controls.Add(this.btnBrowse);
             this.Controls.Add(this.txtFomPath);
             this.Controls.Add(this.lblFomPath);
-            this.MinimumSize = new System.Drawing.Size(760, 560);
+            this.MinimumSize = new System.Drawing.Size(880, 560);
             this.Name = "Form1";
             this.Text = "ICDgenerator";
             this.splitTrees.Panel1.ResumeLayout(false);
@@ -304,6 +317,7 @@
         private System.Windows.Forms.Button btnGenerate;
         private System.Windows.Forms.Button btnGenerateCpp;
         private System.Windows.Forms.Button btnArrayLimits;
+        private System.Windows.Forms.Button btnClassBindings;
         private System.Windows.Forms.Label lblTypePrefix;
         private System.Windows.Forms.TextBox txtTypePrefix;
         private System.Windows.Forms.TextBox txtLog;

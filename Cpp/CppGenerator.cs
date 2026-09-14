@@ -73,6 +73,16 @@ public sealed class CppGenerator
     /// </summary>
     public ArrayLimits Limits { get; set; } = new();
 
+    /// <summary>
+    /// The ID each class was given. Only the id is read: it is the datagram header's classId, so
+    /// both ends must agree on it, and having it here spares the integrator a hand-copy that
+    /// nothing would catch if it went wrong.
+    ///
+    /// Port and Rate stay out on purpose — they are deployment configuration, and baking them in
+    /// would mean regenerating and recompiling to move a port.
+    /// </summary>
+    public ClassBindings Bindings { get; set; } = new();
+
     bool External => ExternalNamespace.Length > 0;
 
     readonly FomModel _model;
@@ -843,14 +853,29 @@ public sealed class CppGenerator
             header.AppendLine($"    {memberType} {member};  ///< FOM: {source.Name} : {source.DataType}");
         }
         header.AppendLine($"    static constexpr std::size_t kEncodedSize = {size};");
+
+        // Only when one has been assigned. Generation must not require ids: an ICD is often drafted
+        // before anyone has agreed the numbering, and refusing to emit until then would put the
+        // tool in the way of its own first use.
+        if (Bindings.IdOf(cls.FullName) is int classId)
+        {
+            header.AppendLine($"    static constexpr std::uint32_t kClassId = {classId};  // 抽出概要シートの ID 列");
+        }
+
         header.AppendLine("};");
         header.AppendLine();
         header.AppendLine($"[[nodiscard]] icd::Result decode(icd::Reader& r, {name}& v);");
         header.AppendLine($"void encode(icd::Writer& w, const {name}& v);");
         header.AppendLine($"[[nodiscard]] std::size_t encodedSize(const {name}& v);");
         header.AppendLine();
-        header.AppendLine("/// Reads the records batched into one datagram. The class id is a runtime argument:");
-        header.AppendLine("/// the ICD's ID column is filled in by hand, so it is not known at generation time.");
+        header.AppendLine("/// Reads the records batched into one datagram.");
+
+        // The reader takes the id at runtime either way. Saying so differently depending on whether
+        // one was assigned keeps the header from mentioning a member it does not have.
+        header.AppendLine(Bindings.IdOf(cls.FullName) is null
+            ? "/// The class id is a runtime argument: none was assigned when this was generated."
+            : "/// The class id stays a runtime argument so a deployment can override the ICD's"
+              + " number\n/// without regenerating; pass kClassId to take it.");
         header.AppendLine($"typedef icd::DatagramReader<{name}> {name}Reader;");
         header.AppendLine();
         header.AppendLine("/// Packs records into one datagram until the next one will not fit.");

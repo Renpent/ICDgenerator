@@ -18,6 +18,15 @@ namespace ICDgenerator
         /// <summary>Where <see cref="_limits"/> is persisted; empty until a FOM is loaded.</summary>
         string _limitsPath = "";
 
+        /// <summary>
+        /// The ID / Port / Rate each class was given. None of the three exists in a FOM, and they
+        /// used to be typed into the workbook by hand — which lost them on every regeneration.
+        /// </summary>
+        ClassBindings _bindings = new();
+
+        /// <summary>Where <see cref="_bindings"/> is persisted; empty until a FOM is loaded.</summary>
+        string _bindingsPath = "";
+
         /// <summary>Guards the subtree cascade against the AfterCheck events it raises itself.</summary>
         bool _suppressCheckCascade;
 
@@ -64,6 +73,8 @@ namespace ICDgenerator
                 _model = model;
                 _limitsPath = ArrayLimits.PathFor(fomPath);
                 _limits = ArrayLimits.Load(_limitsPath);
+                _bindingsPath = ClassBindings.PathFor(fomPath);
+                _bindings = ClassBindings.Load(_bindingsPath);
                 PopulateTrees(model);
 
                 Log($"FOM     : {fomPath}");
@@ -81,6 +92,13 @@ namespace ICDgenerator
                 Log($"HLA標準MIMの型数     : {model.StandardDataTypes.Count}");
                 Log($"配列上限             : 既定 {_limits.Default}" +
                     (_limits.ByType.Count > 0 ? $" / 個別設定 {_limits.ByType.Count} 型" : " (個別設定なし)"));
+                Log($"クラスID             : {_bindings.AssignedCount} 件" +
+                    (_bindings.AssignedCount == 0 ? " (未設定 — 生成コードに kClassId は入りません)" : ""));
+                foreach (var duplicate in _bindings.DuplicateIds())
+                {
+                    Log($"警告: クラスID {duplicate} が重複しています。ヘッダに他の識別子はないので、"
+                        + "受信側は両者を区別できません。");
+                }
                 Log("");
                 LogStructureDiagnostics(model);
                 foreach (var warning in model.Warnings) Log("警告: " + warning);
@@ -334,7 +352,9 @@ namespace ICDgenerator
             {
                 var sw = Stopwatch.StartNew();
                 var limits = _limits;
-                await Task.Run(() => IcdExporter.Export(model, outputPath, selections, limits));
+                var bindings = _bindings;
+                await Task.Run(() =>
+                    IcdExporter.Export(model, outputPath, selections, limits, bindings));
                 var elapsed = sw.ElapsedMilliseconds;
 
                 Log($"Excel出力 : {elapsed} ms");
@@ -391,6 +411,44 @@ namespace ICDgenerator
             }
         }
 
+        private void btnClassBindings_Click(object sender, EventArgs e)
+        {
+            if (_model is null)
+            {
+                MessageBox.Show(this, "先にFOMファイルを読み込んでください。", "ICD Generator",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Edited on a copy so cancelling really cancels.
+            var working = _bindings.Clone();
+
+            using var dialog = new ClassBindingsForm(_model, working);
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+            _bindings = working;
+
+            try
+            {
+                _bindings.Save(_bindingsPath);
+                Log($"クラスID/Port/Rate を保存しました: {_bindingsPath}");
+                Log($"    ID {_bindings.AssignedCount} 件");
+                foreach (var duplicate in _bindings.DuplicateIds())
+                {
+                    Log($"警告: クラスID {duplicate} が重複しています。");
+                }
+                foreach (var duplicate in _bindings.DuplicatePorts())
+                {
+                    Log($"警告: ポート {duplicate} が重複しています。1クラス1ポートの前提が崩れます。");
+                }
+            }
+            catch (Exception ex)
+            {
+                // Still in force for this session even if they could not be written.
+                Log("クラスID/Port/Rate を保存できませんでした: " + ex.Message);
+            }
+        }
+
         private async void btnGenerateCpp_Click(object sender, EventArgs e)
         {
             if (_model is null)
@@ -431,13 +489,17 @@ namespace ICDgenerator
                 // keeps one definition of each type rather than two.
                 var external = txtTypePrefix.Text.Trim();
                 var limits = _limits;
+                var bindings = _bindings;
                 var result = await Task.Run(() =>
                     new CppGenerator(model, new FomTypeResolver(model))
                     {
                         ExternalNamespace = external,
                         // The ceilings are what make a record a fixed-size box, so the generator
                         // needs the same ones the sheets were sized with.
-                        Limits = limits
+                        Limits = limits,
+                        // Ids become kClassId on each record struct. Classes without one still
+                        // generate; their reader just takes the id at runtime as before.
+                        Bindings = bindings
                     }.Generate(selections, outputPath));
                 var elapsed = sw.ElapsedMilliseconds;
 
@@ -480,6 +542,7 @@ namespace ICDgenerator
             btnGenerate.Enabled = !busy;
             btnGenerateCpp.Enabled = !busy;
             btnArrayLimits.Enabled = !busy;
+            btnClassBindings.Enabled = !busy;
             txtTypePrefix.Enabled = !busy;
             btnSelectPublishable.Enabled = !busy;
             btnClearSelection.Enabled = !busy;

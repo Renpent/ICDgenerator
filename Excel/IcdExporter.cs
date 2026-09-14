@@ -16,14 +16,19 @@ public static partial class IcdExporter
     /// Ceilings for dynamic arrays. A FOM declares none, so without them the worst-case size of any
     /// class carrying a variable array is unknowable; the defaults apply when none are given.
     /// </param>
+    /// <param name="bindings">
+    /// The ID / Port / Rate each class was given. None of the three exists in a FOM; without them
+    /// the index sheet's three columns are blank, which is what they always used to be.
+    /// </param>
     public static void Export(FomModel model, string path,
-        IReadOnlyList<IcdSelection>? selections = null, ArrayLimits? limits = null)
+        IReadOnlyList<IcdSelection>? selections = null, ArrayLimits? limits = null,
+        ClassBindings? bindings = null)
     {
         var workbook = new XlsxWorkbook();
         var resolver = new FomTypeResolver(model);
 
         WriteSelectionSheets(workbook, model, resolver, selections ?? Array.Empty<IcdSelection>(),
-            limits ?? new ArrayLimits());
+            limits ?? new ArrayLimits(), bindings ?? new ClassBindings());
 
         WriteOverviewSheet(workbook, model);
         WriteObjectClassSheet(workbook, model);

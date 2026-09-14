@@ -25,7 +25,7 @@ public static partial class IcdExporter
     /// rarely declared — so they are emitted blank for the reader to fill in.
     /// </summary>
     static void WriteSelectionSheets(XlsxWorkbook workbook, FomModel model, FomTypeResolver resolver,
-        IReadOnlyList<IcdSelection> selections, ArrayLimits limits)
+        IReadOnlyList<IcdSelection> selections, ArrayLimits limits, ClassBindings bindings)
     {
         if (selections.Count == 0) return;
 
@@ -64,13 +64,15 @@ public static partial class IcdExporter
         for (int i = 0; i < rows.Count; i++)
         {
             var row = rows[i];
-            index.AddRow(row.Display, null, null, null, row.Size, row.Description);
+            var binding = bindings.For(selections[i].FullName);
+            index.AddRow(row.Display, binding?.Id, binding?.Port, binding?.Rate,
+                row.Size, row.Description);
             index.LinkToSheet(i + 2, 1, row.SheetName);
         }
 
         index.FreezeHeader = true;
-        // ID / Port / Rate are blank for the reader to fill in, so fitting them to an empty
-        // column would leave nowhere to type. Everything else fits its content.
+        // ID / Port / Rate come from the bindings dialog, but a class with none set still leaves an
+        // empty column, and fitting one to nothing leaves nowhere to type over it in Excel.
         index.SetColumnWidth(2, 12);
         index.SetColumnWidth(3, 12);
         index.SetColumnWidth(4, 12);
