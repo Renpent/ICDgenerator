@@ -32,6 +32,12 @@ public sealed class ClassBindingsForm : Form
     readonly Label _summary = new();
     readonly ToolTip _tip = new();
 
+    /// <summary>
+    /// Asks before a bulk clear. A field rather than a call so the off-screen render-and-check
+    /// harness can answer it — a modal dialog has nothing to click it.
+    /// </summary>
+    Func<string, bool> _confirm;
+
     /// <param name="selected">
     /// Full names of the classes ticked in the main window. Numbering starts scoped to these.
     /// </param>
@@ -39,11 +45,13 @@ public sealed class ClassBindingsForm : Form
     {
         _bindings = bindings;
         _selected = new HashSet<string>(selected, StringComparer.Ordinal);
+        _confirm = question => MessageBox.Show(this, question, Text,
+            MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK;
 
         Text = "クラスの ID / Port / Rate";
         StartPosition = FormStartPosition.CenterParent;
         ClientSize = new Size(820, 560);
-        MinimumSize = new Size(700, 420);
+        MinimumSize = new Size(780, 420);
 
         var note = new Label
         {
@@ -54,7 +62,7 @@ public sealed class ClassBindingsForm : Form
                  + "両端で一致していないと通信できません。\n"
                  + "Port と Rate は ICD シートに書かれるだけで、生成コードには入りません"
                  + "（配備先で変わるものなので、変更に再生成を要求しないためです）。\n"
-                 + "「連番を振る」は表示中の行に振ります。既定では選択したクラスだけが表示されています。"
+                 + "「連番を振る」「消去」はどちらも表示中の行が対象です。既定では選択したクラスだけが表示されています。"
         };
 
         // Two rows, not one. A single FlowLayoutPanel held everything, and at the default width the
@@ -98,6 +106,9 @@ public sealed class ClassBindingsForm : Form
         var fill = new Button { Text = "連番を振る", Width = 100 };
         fill.Click += (_, _) => AutoNumber();
 
+        var clear = new Button { Text = "消去", Width = 70 };
+        clear.Click += (_, _) => ClearNumbers();
+
         _overwrite.Text = "既存の値も上書き";
         _overwrite.AutoSize = true;
         _overwrite.Padding = new Padding(8, 4, 8, 0);
@@ -133,6 +144,7 @@ public sealed class ClassBindingsForm : Form
         numbering.Controls.Add(new Label { Text = "開始:", AutoSize = true, Padding = new Padding(8, 6, 4, 0) });
         numbering.Controls.Add(_start);
         numbering.Controls.Add(fill);
+        numbering.Controls.Add(clear);
         numbering.Controls.Add(_selectedOnly);
         numbering.Controls.Add(_overwrite);
 
@@ -329,6 +341,50 @@ public sealed class ClassBindingsForm : Form
 
         Recalculate();
         _summary.Text = $"{filled} 件に採番　" + _summary.Text;
+    }
+
+    /// <summary>
+    /// Blanks the chosen column on the visible rows.
+    ///
+    /// 上書き already lets a run write over existing numbers, but that is not the same thing: a
+    /// clear leaves the rows empty, so a following run can number some and leave others unset.
+    /// Without it the only way back to a blank column was to empty 122 cells by hand.
+    ///
+    /// Confirmed rather than immediate. Cancelling the dialog does undo it — the bindings are
+    /// edited on a copy — but that also throws away every other edit made since opening, which is a
+    /// poor thing to have to reach for after one mis-aimed click.
+    /// </summary>
+    void ClearNumbers()
+    {
+        bool port = _target.SelectedIndex == 1;
+        var column = port ? "Port" : "ID";
+
+        var rows = _grid.Rows.Cast<DataGridViewRow>()
+            .Where(r => r.Visible)
+            .Select(r => (Row: r, Binding: _bindings.For((string)r.Tag!)))
+            .Where(x => x.Binding is not null && (port ? x.Binding.Port : x.Binding.Id) is not null)
+            .ToList();
+
+        if (rows.Count == 0)
+        {
+            _summary.Text = $"消去する {column} がありません　" + _summary.Text;
+            return;
+        }
+
+        if (!_confirm($"表示中の {rows.Count} クラスの {column} を消去します。よろしいですか？")) return;
+
+        foreach (var (row, existing) in rows)
+        {
+            var binding = existing!.Clone();
+            if (port) binding.Port = null;
+            else binding.Id = null;
+
+            _bindings.Set((string)row.Tag!, binding);
+            Restore(row.Index, binding);
+        }
+
+        Recalculate();
+        _summary.Text = $"{rows.Count} 件の {column} を消去　" + _summary.Text;
     }
 
     void Recalculate()
