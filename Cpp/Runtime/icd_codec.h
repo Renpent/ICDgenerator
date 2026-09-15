@@ -130,17 +130,17 @@ inline void storeF64(unsigned char* p, double value) {
 /// truncated or hostile datagram cannot walk off the end.
 class Reader {
 public:
-    Reader(const unsigned char* buf, std::size_t len) noexcept : at_(buf), end_(buf + len) {}
+    Reader(const unsigned char* buf, std::size_t len) noexcept : m_at(buf), m_end(buf + len) {}
 
     [[nodiscard]] std::size_t remaining() const noexcept {
-        return static_cast<std::size_t>(end_ - at_);
+        return static_cast<std::size_t>(m_end - m_at);
     }
 
     /// Returns nullptr rather than a short block when the bytes are not there.
     [[nodiscard]] const unsigned char* take(std::size_t n) noexcept {
         if (remaining() < n) return nullptr;
-        const unsigned char* start = at_;
-        at_ += n;
+        const unsigned char* start = m_at;
+        m_at += n;
         return start;
     }
 
@@ -149,8 +149,8 @@ public:
     [[nodiscard]] bool skip(std::size_t n) noexcept { return take(n) != nullptr; }
 
 private:
-    const unsigned char* at_;
-    const unsigned char* end_;
+    const unsigned char* m_at;
+    const unsigned char* m_end;
 };
 
 /// The writing counterpart. A failed write is latched rather than reported at every call site, so
@@ -158,15 +158,15 @@ private:
 class Writer {
 public:
     Writer(unsigned char* buf, std::size_t cap) noexcept
-        : begin_(buf), at_(buf), end_(buf + cap) {}
+        : m_begin(buf), m_at(buf), m_end(buf + cap) {}
 
     [[nodiscard]] unsigned char* take(std::size_t n) noexcept {
-        if (static_cast<std::size_t>(end_ - at_) < n) {
-            ok_ = false;
+        if (static_cast<std::size_t>(m_end - m_at) < n) {
+            m_ok = false;
             return nullptr;
         }
-        unsigned char* start = at_;
-        at_ += n;
+        unsigned char* start = m_at;
+        m_at += n;
         return start;
     }
 
@@ -176,17 +176,17 @@ public:
         if (unsigned char* p = take(n)) std::memset(p, 0, n);
     }
 
-    void fail() noexcept { ok_ = false; }
-    [[nodiscard]] bool ok() const noexcept { return ok_; }
+    void fail() noexcept { m_ok = false; }
+    [[nodiscard]] bool ok() const noexcept { return m_ok; }
     [[nodiscard]] std::size_t written() const noexcept {
-        return static_cast<std::size_t>(at_ - begin_);
+        return static_cast<std::size_t>(m_at - m_begin);
     }
 
 private:
-    unsigned char* begin_;
-    unsigned char* at_;
-    unsigned char* end_;
-    bool ok_ = true;
+    unsigned char* m_begin;
+    unsigned char* m_at;
+    unsigned char* m_end;
+    bool m_ok = true;
 };
 
 // ---------------------------------------------------------------------------
@@ -432,46 +432,46 @@ template <class T>
 class DatagramWriter {
 public:
     DatagramWriter(unsigned char* buf, std::size_t cap, std::uint32_t classId) noexcept
-        : buf_(buf), cap_(cap), classId_(classId) {}
+        : m_buf(buf), m_cap(cap), m_classId(classId) {}
 
     /// How many records fit in the buffer this was given. Known before adding any, records being a
     /// fixed size.
     [[nodiscard]] std::size_t capacityInRecords() const noexcept {
-        return cap_ < kHeaderSize ? 0 : (cap_ - kHeaderSize) / fixedSize<T>;
+        return m_cap < kHeaderSize ? 0 : (m_cap - kHeaderSize) / fixedSize<T>;
     }
 
     /// Appends a record. Returns false when it will not fit — finish(), send, and start again.
     [[nodiscard]] bool add(const T& record) {
-        if (cap_ < kHeaderSize) return false;
-        if (fixedSize<T> > cap_ - pos_) return false;
+        if (m_cap < kHeaderSize) return false;
+        if (fixedSize<T> > m_cap - m_pos) return false;
 
-        Writer w(buf_ + pos_, fixedSize<T>);
+        Writer w(m_buf + m_pos, fixedSize<T>);
         encode(w, record);
         if (!w.ok()) return false;
 
-        pos_ += fixedSize<T>;
-        ++count_;
+        m_pos += fixedSize<T>;
+        ++m_count;
         return true;
     }
 
     /// Fills in the header and returns the datagram's total length.
     [[nodiscard]] std::size_t finish() noexcept {
-        if (cap_ < kHeaderSize) return 0;
-        storeU32(buf_, classId_);
-        storeU32(buf_ + 4, count_);
-        storeU32(buf_ + 8, static_cast<std::uint32_t>(fixedSize<T>));
-        return pos_;
+        if (m_cap < kHeaderSize) return 0;
+        storeU32(m_buf, m_classId);
+        storeU32(m_buf + 4, m_count);
+        storeU32(m_buf + 8, static_cast<std::uint32_t>(fixedSize<T>));
+        return m_pos;
     }
 
-    [[nodiscard]] std::uint32_t count() const noexcept { return count_; }
-    [[nodiscard]] bool empty() const noexcept { return count_ == 0; }
+    [[nodiscard]] std::uint32_t count() const noexcept { return m_count; }
+    [[nodiscard]] bool empty() const noexcept { return m_count == 0; }
 
 private:
-    unsigned char* buf_;
-    std::size_t cap_;
-    std::size_t pos_ = kHeaderSize;
-    std::uint32_t classId_;
-    std::uint32_t count_ = 0;
+    unsigned char* m_buf;
+    std::size_t m_cap;
+    std::size_t m_pos = kHeaderSize;
+    std::uint32_t m_classId;
+    std::uint32_t m_count = 0;
 };
 
 template <class T>
@@ -495,16 +495,16 @@ public:
             return Result::Truncated;
         }
 
-        out.buf_ = buf + kHeaderSize;
-        out.recordSize_ = recordSize;
-        out.count_ = count;
-        out.index_ = 0;
+        out.m_buf = buf + kHeaderSize;
+        out.m_recordSize = recordSize;
+        out.m_count = count;
+        out.m_index = 0;
         return Result::Ok;
     }
 
-    [[nodiscard]] std::uint32_t count() const noexcept { return count_; }
-    [[nodiscard]] std::uint32_t recordSize() const noexcept { return recordSize_; }
-    [[nodiscard]] bool hasNext() const noexcept { return index_ < count_; }
+    [[nodiscard]] std::uint32_t count() const noexcept { return m_count; }
+    [[nodiscard]] std::uint32_t recordSize() const noexcept { return m_recordSize; }
+    [[nodiscard]] bool hasNext() const noexcept { return m_index < m_count; }
 
     /// Reads the next record. One that does not decode sets skipped and the reader moves on:
     /// records sit at fixed offsets, so a bad record costs that record and never the rest.
@@ -512,24 +512,24 @@ public:
         skipped = false;
         if (!hasNext()) return Result::Truncated;
 
-        const Result rc = at(index_, out);
-        ++index_;
+        const Result rc = at(m_index, out);
+        ++m_index;
         if (rc != Result::Ok) skipped = true;
         return Result::Ok;
     }
 
     /// Record k without reading the ones before it.
     [[nodiscard]] Result at(std::uint32_t index, T& out) const {
-        if (index >= count_) return Result::Truncated;
-        Reader inner(buf_ + static_cast<std::size_t>(index) * recordSize_, recordSize_);
+        if (index >= m_count) return Result::Truncated;
+        Reader inner(m_buf + static_cast<std::size_t>(index) * m_recordSize, m_recordSize);
         return decode(inner, out);
     }
 
 private:
-    const unsigned char* buf_ = nullptr;
-    std::uint32_t recordSize_ = 0;
-    std::uint32_t count_ = 0;
-    std::uint32_t index_ = 0;
+    const unsigned char* m_buf = nullptr;
+    std::uint32_t m_recordSize = 0;
+    std::uint32_t m_count = 0;
+    std::uint32_t m_index = 0;
 };
 
 }  // namespace icd

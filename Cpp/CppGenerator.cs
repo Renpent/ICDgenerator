@@ -382,25 +382,30 @@ public sealed class CppGenerator
     /// </summary>
     static readonly UTF8Encoding SourceEncoding = new(encoderShouldEmitUTF8Identifier: true);
 
+    /// <summary>
+    /// CRLF, on every line of every file. The two write paths below are the only places a generated
+    /// file reaches disk, so normalising here is what makes that hold, rather than each emitter taking
+    /// care. Before this, icd_codec.h went out byte for byte as stored — entirely LF — and a class
+    /// header comment built with an embedded "\n" came out as one lone-LF line in an otherwise CRLF
+    /// file. GCC and Clang treat CRLF as a line end, so the runtime's backslash-continued macro still
+    /// splices when built on Linux.
+    /// </summary>
+    static string ToCrlf(string text) =>
+        text.Replace("\r\n", "\n").Replace('\r', '\n').Replace("\n", "\r\n");
+
     void WriteRuntime(string directory)
     {
         using var stream = typeof(CppGenerator).Assembly.GetManifestResourceStream(RuntimeResource)
             ?? throw new CppGenerationException($"埋め込みリソース {RuntimeResource} が見つかりません。");
 
-        using var buffer = new MemoryStream();
-        stream.CopyTo(buffer);
-        var bytes = buffer.ToArray();
+        // Read as text rather than copied as bytes, so its line endings are normalised like every
+        // other file's whatever the stored copy uses. A BOM on the resource is consumed here and
+        // written back exactly once.
+        using var reader = new StreamReader(stream, new UTF8Encoding(false),
+            detectEncodingFromByteOrderMarks: true);
+        var text = reader.ReadToEnd();
 
-        var path = Path.Combine(directory, RuntimeFile);
-        var bom = SourceEncoding.GetPreamble();
-        bool hasBom = bytes.Length >= bom.Length && bytes.Take(bom.Length).SequenceEqual(bom);
-
-        using (var file = File.Create(path))
-        {
-            if (!hasBom) file.Write(bom, 0, bom.Length);
-            file.Write(bytes, 0, bytes.Length);
-        }
-
+        File.WriteAllText(Path.Combine(directory, RuntimeFile), ToCrlf(text), SourceEncoding);
         _result.Files.Add(RuntimeFile);
     }
 
@@ -945,7 +950,7 @@ public sealed class CppGenerator
 
     void Save(string directory, string fileName, StringBuilder content)
     {
-        File.WriteAllText(Path.Combine(directory, fileName), content.ToString(), SourceEncoding);
+        File.WriteAllText(Path.Combine(directory, fileName), ToCrlf(content.ToString()), SourceEncoding);
         _result.Files.Add(fileName);
     }
 }
