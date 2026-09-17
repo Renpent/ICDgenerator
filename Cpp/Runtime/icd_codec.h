@@ -19,8 +19,7 @@
 // type definitions; an include guard or macro caught by that replace would be a puzzling breakage,
 // so the token appears nowhere in this file.
 
-#ifndef ICDCODEC_H
-#define ICDCODEC_H
+#pragma once
 
 #include <cstddef>
 #include <cstdint>
@@ -533,5 +532,3 @@ private:
 };
 
 }  // namespace icd
-
-#endif  // ICDCODEC_H

@@ -413,8 +413,7 @@ public sealed class CppGenerator
     {
         var header = new StringBuilder();
         Banner(header, "FOMのデータ型");
-        header.AppendLine("#ifndef ICDFOM_TYPES_H");
-        header.AppendLine("#define ICDFOM_TYPES_H");
+        header.AppendLine("#pragma once");
         header.AppendLine();
         header.AppendLine($"#include \"{RuntimeFile}\"");
 
@@ -427,7 +426,6 @@ public sealed class CppGenerator
         else WriteOwnTypes(header, body);
 
         header.AppendLine();
-        header.AppendLine("#endif  // ICDFOM_TYPES_H");
 
         Save(directory, TypesFile + ".h", header);
         Save(directory, TypesFile + ".cpp", body);
@@ -835,12 +833,10 @@ public sealed class CppGenerator
     /// </summary>
     void WriteClassIndex(string directory, IReadOnlyList<GenClass> classes)
     {
-        var guard = "ICDFOM_CLASSES_H";
         var header = new StringBuilder();
 
         Banner(header, "選択した全クラス");
-        header.AppendLine($"#ifndef {guard}");
-        header.AppendLine($"#define {guard}");
+        header.AppendLine("#pragma once");
         header.AppendLine();
         header.AppendLine("// 配線用のまとめ include。個々のクラスだけを扱うコードは、そのクラスの");
         header.AppendLine("// ヘッダを直接 include すること。");
@@ -854,7 +850,6 @@ public sealed class CppGenerator
         }
 
         header.AppendLine();
-        header.AppendLine($"#endif  // {guard}");
 
         Save(directory, ClassesFile, header);
     }
@@ -862,7 +857,6 @@ public sealed class CppGenerator
     void WriteClass(string directory, GenClass cls)
     {
         var name = _typeNames[cls.FullName];
-        var guard = "ICDFOM_" + name.ToUpperInvariant() + "_H";
 
         var members = CppNames.Resolve(
             cls.Members.Select(m => (Key: m.Name, Raw: m.Name, TieBreak: m.DataType)),
@@ -876,8 +870,7 @@ public sealed class CppGenerator
 
         var header = new StringBuilder();
         Banner(header, cls.FullName);
-        header.AppendLine($"#ifndef {guard}");
-        header.AppendLine($"#define {guard}");
+        header.AppendLine("#pragma once");
         header.AppendLine();
         header.AppendLine($"#include \"{TypesFile}.h\"");
         header.AppendLine();
@@ -921,7 +914,6 @@ public sealed class CppGenerator
         header.AppendLine();
         header.AppendLine($"}}  // namespace {Namespace}");
         header.AppendLine();
-        header.AppendLine($"#endif  // {guard}");
 
         var body = new StringBuilder();
         Banner(body, cls.FullName);
