@@ -31,6 +31,7 @@ public sealed class ClassBindingsForm : Form
     readonly CheckBox _selectedOnly = new();
     readonly Label _summary = new();
     readonly ToolTip _tip = new();
+    readonly ComboBox _mtu = new();
 
     /// <summary>
     /// Asks before a bulk clear. A field rather than a call so the off-screen render-and-check
@@ -48,7 +49,7 @@ public sealed class ClassBindingsForm : Form
         _confirm = question => MessageBox.Show(this, question, Text,
             MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK;
 
-        Text = "クラスの ID / Port / Rate";
+        Text = "クラスの ID / Port / Rate と MTU";
         StartPosition = FormStartPosition.CenterParent;
         ClientSize = new Size(820, 560);
         MinimumSize = new Size(780, 420);
@@ -58,10 +59,8 @@ public sealed class ClassBindingsForm : Form
             Dock = DockStyle.Top,
             Height = 56,
             Padding = new Padding(8, 6, 8, 0),
-            Text = "ID はデータグラムヘッダの classId で、生成する C++ にも埋め込まれます。"
-                 + "両端で一致していないと通信できません。\n"
-                 + "Port と Rate は ICD シートに書かれるだけで、生成コードには入りません"
-                 + "（配備先で変わるものなので、変更に再生成を要求しないためです）。\n"
+            Text = "ID と Port は生成する C++ に埋め込まれます（kClassId / kPort）。両端で一致していないと通信できません。\n"
+                 + "Rate は ICD シートに書かれるだけです。ゲートウェイは全クラスを毎周期送るので、受信側への参考値になります。\n"
                  + "「連番を振る」「消去」はどちらも表示中の行が対象です。既定では選択したクラスだけが表示されています。"
         };
 
@@ -170,8 +169,40 @@ public sealed class ClassBindingsForm : Form
         _grid.Columns.Add(Column("rate", "Rate(Hz)", readOnly: false, fill: 12));
         _grid.CellEndEdit += (_, e) => Commit(e.RowIndex);
 
+        // One value for the whole ICD, so it sits on its own row rather than in a column. The two
+        // choices are the two MTUs the runtime has a payload constant for.
+        var mtuRow = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Bottom,
+            Height = 34,
+            WrapContents = false,
+            Padding = new Padding(8, 4, 8, 0)
+        };
+        _mtu.DropDownStyle = ComboBoxStyle.DropDownList;
+        _mtu.Items.AddRange(new object[] { "1500", "9000" });
+        _mtu.Width = 80;
+        _mtu.SelectedItem = _bindings.Mtu.ToString();
+        if (_mtu.SelectedIndex < 0) _mtu.SelectedIndex = 0;
+        _mtu.SelectedIndexChanged += (_, _) =>
+        {
+            _bindings.Mtu = int.Parse((string)_mtu.SelectedItem!);
+            Recalculate();
+        };
+        mtuRow.Controls.Add(new Label { Text = "MTU:", AutoSize = true, Padding = new Padding(0, 6, 4, 0) });
+        mtuRow.Controls.Add(_mtu);
+        mtuRow.Controls.Add(new Label
+        {
+            Text = "全クラス共通。生成コードの kPayload になり、1件が収まらないクラスは生成時に弾かれます。",
+            AutoSize = true,
+            Padding = new Padding(8, 6, 0, 0),
+            ForeColor = SystemColors.GrayText
+        });
+
+        // Docking applies in reverse of the order added: the buttons take the bottom edge, the MTU
+        // row sits above them, the numbering row above that, and the grid fills what is left.
         Controls.Add(_grid);
         Controls.Add(numbering);
+        Controls.Add(mtuRow);
         Controls.Add(buttons);
         Controls.Add(note);
         AcceptButton = ok;
@@ -406,7 +437,7 @@ public sealed class ClassBindingsForm : Form
         }
 
         int shown = _grid.Rows.Cast<DataGridViewRow>().Count(r => r.Visible);
-        var text = $"表示 {shown} / 全 {_grid.Rows.Count} クラス　ID {_bindings.AssignedCount} 件";
+        var text = $"表示 {shown} / 全 {_grid.Rows.Count} クラス　ID {_bindings.AssignedCount} 件　MTU {_bindings.Mtu}";
 
         if (duplicateIds.Count > 0) text += $"　⚠ ID重複: {string.Join(", ", duplicateIds)}";
         if (duplicatePorts.Count > 0) text += $"　⚠ Port重複: {string.Join(", ", duplicatePorts)}";

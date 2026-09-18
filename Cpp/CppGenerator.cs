@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using System.Text.RegularExpressions;
 using ICDgenerator.Excel;
 using ICDgenerator.Fom;
 
@@ -75,14 +76,23 @@ public sealed class CppGenerator
     public ArrayLimits Limits { get; set; } = new();
 
     /// <summary>
-    /// The ID each class was given. Only the id is read: it is the datagram header's classId, so
-    /// both ends must agree on it, and having it here spares the integrator a hand-copy that
-    /// nothing would catch if it went wrong.
+    /// What each class was given on the 抽出概要 sheet, and the MTU the whole ICD assumes.
     ///
-    /// Port and Rate stay out on purpose — they are deployment configuration, and baking them in
-    /// would mean regenerating and recompiling to move a port.
+    /// The id and the port reach the generated C++ (<c>kClassId</c>, <c>kPort</c>), and the MTU
+    /// becomes <c>kPayload</c> on every class. All three are agreements between the two ends of the
+    /// wire, and having them here spares the integrator a hand-copy that nothing would catch if it
+    /// went wrong — which is exactly what the gateway's hand-written binding table was.
+    ///
+    /// Port used to stay out, on the reasoning that it is deployment configuration and moving one
+    /// should not need a regeneration. That assumed the gateway read ports at runtime. It does not:
+    /// its bindings are <c>constexpr</c>, so moving a port already meant editing a header and
+    /// recompiling, and generating the value costs no recompile it was not paying. Rate does stay
+    /// out — the gateway sends every class on every tick, so the column is documentation only.
     /// </summary>
     public ClassBindings Bindings { get; set; } = new();
+
+    /// <summary>The payload chosen for this generation, resolved once from <see cref="ClassBindings.Mtu"/>.</summary>
+    (string Symbol, int Bytes) _payload;
 
     bool External => ExternalNamespace.Length > 0;
 
@@ -111,12 +121,16 @@ public sealed class CppGenerator
             throw new CppGenerationException("生成するクラスが選択されていません。");
         }
 
-        Directory.CreateDirectory(directory);
-
         var classes = selections.Select(ResolveClass).ToList();
         CollectTypes(classes);
         NameTypes(classes);
 
+        // Refused before anything is written, like the variant-record refusal: a class that cannot
+        // fit one record into a datagram would otherwise be dropped silently every tick.
+        _payload = PayloadChoice();
+        RejectOversized(classes);
+
+        Directory.CreateDirectory(directory);
         WriteRuntime(directory);
         WriteTypes(directory);
         foreach (var cls in classes) WriteClass(directory, cls);
@@ -130,7 +144,7 @@ public sealed class CppGenerator
     // ------------------------------------------------------------------
 
     /// <summary>A selected class reduced to what generation needs: a name and a member list.</summary>
-    sealed record GenClass(string FullName, string ShortName,
+    sealed record GenClass(string FullName, string ShortName, bool IsInteraction,
         IReadOnlyList<(string Name, string DataType, string Semantics)> Members);
 
     GenClass ResolveClass(IcdSelection selection)
@@ -140,14 +154,14 @@ public sealed class CppGenerator
             var interaction = _model.AllInteractionClasses.FirstOrDefault(c => c.FullName == selection.FullName)
                 ?? throw new CppGenerationException($"インタラクション {selection.FullName} が見つかりません。");
 
-            return new GenClass(interaction.FullName, interaction.Name,
+            return new GenClass(interaction.FullName, interaction.Name, IsInteraction: true,
                 interaction.AllParameters.Select(p => (p.Name, p.DataType, p.Semantics)).ToList());
         }
 
         var objectClass = _model.AllObjectClasses.FirstOrDefault(c => c.FullName == selection.FullName)
             ?? throw new CppGenerationException($"オブジェクトクラス {selection.FullName} が見つかりません。");
 
-        return new GenClass(objectClass.FullName, objectClass.Name,
+        return new GenClass(objectClass.FullName, objectClass.Name, IsInteraction: false,
             objectClass.AllAttributes.Select(a => (a.Name, a.DataType, a.Semantics)).ToList());
     }
 
@@ -840,13 +854,16 @@ public sealed class CppGenerator
         header.AppendLine();
         header.AppendLine("// 配線用のまとめ include。個々のクラスだけを扱うコードは、そのクラスの");
         header.AppendLine("// ヘッダを直接 include すること。");
+        header.AppendLine("//");
+        header.AppendLine($"// MTU {Bindings.Mtu} → 全クラス kPayload = {_payload.Symbol}（{_payload.Bytes} B）");
         header.AppendLine();
 
         foreach (var cls in classes)
         {
             var name = _typeNames[cls.FullName];
             var id = Bindings.IdOf(cls.FullName) is int classId ? $"ID {classId}" : "ID 未設定";
-            header.AppendLine($"#include \"{name}.h\"  // {id} : {cls.FullName}");
+            var port = Bindings.PortOf(cls.FullName) is int p ? $"Port {p}" : "Port 未設定";
+            header.AppendLine($"#include \"{name}.h\"  // {id} / {port} : {cls.FullName}");
         }
 
         header.AppendLine();
@@ -886,15 +903,31 @@ public sealed class CppGenerator
         }
         header.AppendLine($"    static constexpr std::size_t kEncodedSize = {size};");
 
+        // Facts every class carries: which datagram box it is carried in, what kind of thing it is,
+        // and its FOM name. The gateway derives its binding from these and holds no number by hand.
+        header.AppendLine($"    static constexpr std::size_t kPayload = {_payload.Symbol};  // 1データグラムの上限。ICD の MTU {Bindings.Mtu} より");
+        header.AppendLine($"    static constexpr bool kIsInteraction = {(cls.IsInteraction ? "true" : "false")};");
+        header.AppendLine($"    static constexpr const char* kFomName = \"{cls.FullName}\";");
+
         // Only when one has been assigned. Generation must not require ids: an ICD is often drafted
         // before anyone has agreed the numbering, and refusing to emit until then would put the
-        // tool in the way of its own first use.
+        // tool in the way of its own first use. The same holds for the port.
         if (Bindings.IdOf(cls.FullName) is int classId)
         {
             header.AppendLine($"    static constexpr std::uint32_t kClassId = {classId};  // 抽出概要シートの ID 列");
         }
+        if (Bindings.PortOf(cls.FullName) is int classPort)
+        {
+            header.AppendLine($"    static constexpr std::uint16_t kPort = {classPort};  // 抽出概要シートの Port 列");
+        }
 
         header.AppendLine("};");
+        header.AppendLine();
+
+        // The generator has already refused a class that does not fit; this keeps that true after
+        // any later edit to the ceilings or the payload, at the earliest point a compiler can say so.
+        header.AppendLine($"static_assert({name}::kEncodedSize + icd::kHeaderSize <= {name}::kPayload,");
+        header.AppendLine($"              \"{name}: 1件がペイロードに収まりません。ICDgenerator の MTU か配列上限を見直してください\");");
         header.AppendLine();
         header.AppendLine($"[[nodiscard]] icd::Result decode(icd::Reader& r, {name}& v);");
         header.AppendLine($"void encode(icd::Writer& w, const {name}& v);");
@@ -944,5 +977,71 @@ public sealed class CppGenerator
     {
         File.WriteAllText(Path.Combine(directory, fileName), ToCrlf(content.ToString()), SourceEncoding);
         _result.Files.Add(fileName);
+    }
+
+    // ------------------------------------------------------------------
+    // Payload
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// The sizes the runtime defines, read out of the embedded <c>icd_codec.h</c> rather than
+    /// transcribed. A second copy of these numbers would be a second thing to drift, and the
+    /// resource has to be readable anyway — it is what <see cref="WriteRuntime"/> copies out.
+    /// </summary>
+    public static (int HeaderSize, int DefaultPayload, int JumboPayload) RuntimeConstants => s_runtime.Value;
+
+    static readonly Lazy<(int, int, int)> s_runtime = new(() =>
+    {
+        using var stream = typeof(CppGenerator).Assembly.GetManifestResourceStream(RuntimeResource)
+            ?? throw new CppGenerationException($"ランタイムのリソース {RuntimeResource} が読めません。");
+        using var reader = new StreamReader(stream, new UTF8Encoding(false), detectEncodingFromByteOrderMarks: true);
+        var text = reader.ReadToEnd();
+
+        int Constant(string name)
+        {
+            var m = Regex.Match(text, $@"constexpr\s+std::size_t\s+{name}\s*=\s*(\d+)\s*;");
+            if (!m.Success) throw new CppGenerationException($"icd_codec.h に {name} の定義が見つかりません。");
+            return int.Parse(m.Groups[1].Value);
+        }
+
+        return (Constant("kHeaderSize"), Constant("kDefaultPayload"), Constant("kJumboPayload"));
+    });
+
+    /// <summary>
+    /// One datagram's payload for the ICD's MTU: the runtime symbol the generated code names, and
+    /// its value for the size check. The two MTUs the dialog offers are the only ones the runtime
+    /// has a constant for.
+    /// </summary>
+    (string Symbol, int Bytes) PayloadChoice()
+    {
+        var k = RuntimeConstants;
+        return Bindings.Mtu switch
+        {
+            1500 => ("icd::kDefaultPayload", k.DefaultPayload),
+            9000 => ("icd::kJumboPayload", k.JumboPayload),
+            var other => throw new CppGenerationException(
+                $"MTU {other} には対応していません。1500 か 9000 を選んでください。")
+        };
+    }
+
+    /// <summary>
+    /// Every selected class must fit at least one record into a datagram. One that does not would
+    /// pass generation, compile, open its port, and then be dropped on every tick — the failure
+    /// that is hardest to notice — so it is refused here, naming the class and by how much.
+    /// </summary>
+    void RejectOversized(IReadOnlyList<GenClass> classes)
+    {
+        int room = _payload.Bytes - RuntimeConstants.HeaderSize;
+        var over = classes
+            .Select(c => (c.FullName, Size: c.Members.Sum(m => FixedSizeOf(m.DataType))))
+            .Where(x => x.Size > room)
+            .Select(x => $"{x.FullName}  {x.Size} B > {room} B")
+            .ToList();
+        if (over.Count == 0) return;
+
+        throw new CppGenerationException(
+            $"MTU {Bindings.Mtu}（{_payload.Symbol} = {_payload.Bytes} B、ヘッダを除いて {room} B）に"
+            + "1件も収まらないクラスがあります。MTU を 9000 にするか、配列上限を下げるか、選択から外してください:\n  "
+            + string.Join("\n  ", over));
     }
 }

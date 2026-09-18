@@ -11,10 +11,15 @@ namespace ICDgenerator.Fom;
 /// specified, and they used to be typed into the workbook by hand — which meant **regenerating the
 /// workbook threw them away**, the index sheet writing all three blank every time.
 ///
-/// <c>Id</c> is not merely documentation: it is the datagram header's classId, so it must agree
-/// between the two ends and it reaches the generated C++. <c>Port</c> and <c>Rate</c> stay on the
-/// sheet only — a port is deployment configuration, and requiring a regeneration and a recompile to
-/// move one would be the wrong coupling.
+/// <c>Id</c> and <c>Port</c> are not merely documentation: the id is the datagram header's
+/// classId and the port is where the class is sent, so both must agree between the two ends, and
+/// both reach the generated C++ (<c>kClassId</c>, <c>kPort</c>). <c>Rate</c> stays on the sheet —
+/// the gateway sends every class on every tick of its loop, so the column describes what a
+/// receiver may expect, not something the code acts on.
+///
+/// Port used to stay out too, as "deployment configuration". That assumed the gateway read ports at
+/// runtime; it compiles them in, so generating the value removes a hand-copy without adding a
+/// recompile.
 /// </summary>
 public sealed class ClassBinding
 {
@@ -40,6 +45,19 @@ public sealed class ClassBindings
 {
     [JsonPropertyName("byClass")]
     public Dictionary<string, ClassBinding> ByClass { get; set; } = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The MTU the whole ICD assumes, 1500 or 9000. One value, not one per class: it is a property
+    /// of the network path, and every class on it is carried in the same size of box. It reaches the
+    /// generated C++ as <c>kPayload</c> on each class, and a class that cannot fit one record into
+    /// that box is refused at generation rather than dropped at runtime.
+    ///
+    /// Absent from a file written before this existed, so it defaults to the standard MTU.
+    /// </summary>
+    [JsonPropertyName("mtu")]
+    public int Mtu { get; set; } = 1500;
+
+    public int? PortOf(string fullName) => For(fullName)?.Port;
 
     public ClassBinding? For(string fullName) =>
         ByClass.TryGetValue(fullName, out var binding) ? binding : null;
@@ -98,7 +116,7 @@ public sealed class ClassBindings
 
     public ClassBindings Clone()
     {
-        var copy = new ClassBindings();
+        var copy = new ClassBindings { Mtu = Mtu };
         foreach (var (name, binding) in ByClass) copy.ByClass[name] = binding.Clone();
         return copy;
     }

@@ -433,7 +433,7 @@ namespace ICDgenerator
             {
                 _bindings.Save(_bindingsPath);
                 Log($"クラスID/Port/Rate を保存しました: {_bindingsPath}");
-                Log($"    ID {_bindings.AssignedCount} 件");
+                Log($"    ID {_bindings.AssignedCount} 件 / MTU {_bindings.Mtu}");
                 foreach (var duplicate in _bindings.DuplicateIds())
                 {
                     Log($"警告: クラスID {duplicate} が重複しています。");
@@ -498,8 +498,10 @@ namespace ICDgenerator
                         // The ceilings are what make a record a fixed-size box, so the generator
                         // needs the same ones the sheets were sized with.
                         Limits = limits,
-                        // Ids become kClassId on each record struct. Classes without one still
-                        // generate; their reader just takes the id at runtime as before.
+                        // Ids and ports become kClassId / kPort on each record struct, and the
+                        // MTU becomes kPayload. Classes without an id or port still generate; the
+                        // reader takes the id at runtime as before. A class that cannot fit one
+                        // record into the payload is refused with its name and size.
                         Bindings = bindings
                     }.Generate(selections, outputPath));
                 var elapsed = sw.ElapsedMilliseconds;
