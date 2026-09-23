@@ -388,13 +388,21 @@ public sealed class CppGenerator
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// UTF-8 **with** a BOM. MSVC on a non-UTF-8 system codepage — a Japanese Windows reads CP932 —
-    /// otherwise decodes a UTF-8 source file as the local codepage and raises C4819, which is an
-    /// error under /WX. The BOM is what tells it the encoding; GCC and Clang skip it silently.
-    /// Every non-ASCII character in the output (the Japanese banner, an em dash in a comment) would
-    /// trip this, so it is not a matter of avoiding a few characters.
+    /// UTF-8 **without** a BOM.
+    ///
+    /// **The consuming project must pass /utf-8 to MSVC.** On a non-UTF-8 system codepage — a
+    /// Japanese Windows reads CP932 — MSVC otherwise decodes a BOM-less UTF-8 source as the local
+    /// codepage and raises C4819, an error under /WX. Every non-ASCII character in the output (the
+    /// Japanese banner, an em dash in a comment) trips it, so this is not a matter of avoiding a
+    /// few characters. GCC and Clang read UTF-8 by default and never needed the BOM.
+    ///
+    /// This used to emit the BOM so the output would compile in a project that passes nothing.
+    /// It was dropped because the BOM has to be right in every editor and diff tool that touches
+    /// the file afterwards, and one flag on the consuming side is the smaller thing to get right —
+    /// HLAGateway passes it from both its .vcxproj and its CMakeLists.txt, and keeps a
+    /// .editorconfig so an editor cannot re-save the file as CP932.
     /// </summary>
-    static readonly UTF8Encoding SourceEncoding = new(encoderShouldEmitUTF8Identifier: true);
+    static readonly UTF8Encoding SourceEncoding = new(encoderShouldEmitUTF8Identifier: false);
 
     /// <summary>
     /// CRLF, on every line of every file. The two write paths below are the only places a generated
