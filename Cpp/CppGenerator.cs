@@ -39,6 +39,18 @@ public sealed class CppGenerator
     const string TypesFile = "icd_types";
     const string ClassesFile = "icd_classes.h";
 
+    /// <summary>
+    /// Where each class's pair of files goes, below the output root. The shared files — the runtime,
+    /// the types and the umbrella header — stay at the root; the classes are split by what they are
+    /// in the FOM, so a reader looking for an interaction does not have to know its name first.
+    /// Type names are unique across both trees already (NameTypes resolves them together), so the
+    /// split is for the reader, not to avoid collisions.
+    /// </summary>
+    const string ObjectDir = "object";
+    const string InteractionDir = "interaction";
+
+    static string DirOf(GenClass cls) => cls.IsInteraction ? InteractionDir : ObjectDir;
+
     /// <summary>Namespace for generated code, kept apart from the runtime's own.</summary>
     const string Namespace = "icdfom";
 
@@ -871,7 +883,7 @@ public sealed class CppGenerator
             var name = _typeNames[cls.FullName];
             var id = Bindings.IdOf(cls.FullName) is int classId ? $"ID {classId}" : "ID 未設定";
             var port = Bindings.PortOf(cls.FullName) is int p ? $"Port {p}" : "Port 未設定";
-            header.AppendLine($"#include \"{name}.h\"  // {id} / {port} : {cls.FullName}");
+            header.AppendLine($"#include \"{DirOf(cls)}/{name}.h\"  // {id} / {port} : {cls.FullName}");
         }
 
         header.AppendLine();
@@ -897,7 +909,8 @@ public sealed class CppGenerator
         Banner(header, cls.FullName);
         header.AppendLine("#pragma once");
         header.AppendLine();
-        header.AppendLine($"#include \"{TypesFile}.h\"");
+        // The class sits one level below the shared files (object/ or interaction/).
+        header.AppendLine($"#include \"../{TypesFile}.h\"");
         header.AppendLine();
         header.AppendLine($"namespace {Namespace} {{");
         header.AppendLine();
@@ -968,8 +981,8 @@ public sealed class CppGenerator
             size);
         body.AppendLine($"}}  // namespace {Namespace}");
 
-        Save(directory, name + ".h", header);
-        Save(directory, name + ".cpp", body);
+        Save(directory, $"{DirOf(cls)}/{name}.h", header);
+        Save(directory, $"{DirOf(cls)}/{name}.cpp", body);
     }
 
     static void Banner(StringBuilder sb, string subject)
@@ -981,9 +994,13 @@ public sealed class CppGenerator
         sb.AppendLine();
     }
 
+    /// <param name="fileName">Relative to <paramref name="directory"/>, with '/' for a subdirectory
+    /// (object/ or interaction/). The subdirectory is created on first use.</param>
     void Save(string directory, string fileName, StringBuilder content)
     {
-        File.WriteAllText(Path.Combine(directory, fileName), ToCrlf(content.ToString()), SourceEncoding);
+        var path = Path.Combine(directory, fileName.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, ToCrlf(content.ToString()), SourceEncoding);
         _result.Files.Add(fileName);
     }
 
