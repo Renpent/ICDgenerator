@@ -44,10 +44,11 @@ public sealed class CppGenerator
     /// the types and the umbrella header — stay at the root; the classes are split by what they are
     /// in the FOM, so a reader looking for an interaction does not have to know its name first.
     /// Type names are unique across both trees already (NameTypes resolves them together), so the
-    /// split is for the reader, not to avoid collisions.
+    /// split is for the reader, not to avoid collisions. The names are capitalised to match the
+    /// gateway's folder convention (a capital initial; an abbreviation such as ICD all in capitals).
     /// </summary>
-    const string ObjectDir = "object";
-    const string InteractionDir = "interaction";
+    const string ObjectDir = "Object";
+    const string InteractionDir = "Interaction";
 
     static string DirOf(GenClass cls) => cls.IsInteraction ? InteractionDir : ObjectDir;
 
@@ -909,7 +910,7 @@ public sealed class CppGenerator
         Banner(header, cls.FullName);
         header.AppendLine("#pragma once");
         header.AppendLine();
-        // The class sits one level below the shared files (object/ or interaction/).
+        // The class sits one level below the shared files (Object/ or Interaction/).
         header.AppendLine($"#include \"../{TypesFile}.h\"");
         header.AppendLine();
         header.AppendLine($"namespace {Namespace} {{");
@@ -995,7 +996,7 @@ public sealed class CppGenerator
     }
 
     /// <param name="fileName">Relative to <paramref name="directory"/>, with '/' for a subdirectory
-    /// (object/ or interaction/). The subdirectory is created on first use.</param>
+    /// (Object/ or Interaction/). The subdirectory is created on first use.</param>
     void Save(string directory, string fileName, StringBuilder content)
     {
         var path = Path.Combine(directory, fileName.Replace('/', Path.DirectorySeparatorChar));
