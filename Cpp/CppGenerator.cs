@@ -157,8 +157,11 @@ public sealed class CppGenerator
     // ------------------------------------------------------------------
 
     /// <summary>A selected class reduced to what generation needs: a name and a member list.</summary>
+    /// <param name="Members">What goes on the wire, exclusions already applied.</param>
+    /// <param name="Excluded">What was left off, named in the header so its absence reads as meant.</param>
     sealed record GenClass(string FullName, string ShortName, bool IsInteraction,
-        IReadOnlyList<(string Name, string DataType, string Semantics)> Members);
+        IReadOnlyList<(string Name, string DataType, string Semantics)> Members,
+        IReadOnlyList<string> Excluded);
 
     GenClass ResolveClass(IcdSelection selection)
     {
@@ -167,15 +170,32 @@ public sealed class CppGenerator
             var interaction = _model.AllInteractionClasses.FirstOrDefault(c => c.FullName == selection.FullName)
                 ?? throw new CppGenerationException($"インタラクション {selection.FullName} が見つかりません。");
 
-            return new GenClass(interaction.FullName, interaction.Name, IsInteraction: true,
-                interaction.AllParameters.Select(p => (p.Name, p.DataType, p.Semantics)).ToList());
+            return Checked(new GenClass(interaction.FullName, interaction.Name, IsInteraction: true,
+                Bindings.SentMembers(interaction),
+                Bindings.ExcludedMembers(interaction.AllParameters.Select(p => p.Name), interaction.FullName)));
         }
 
         var objectClass = _model.AllObjectClasses.FirstOrDefault(c => c.FullName == selection.FullName)
             ?? throw new CppGenerationException($"オブジェクトクラス {selection.FullName} が見つかりません。");
 
-        return new GenClass(objectClass.FullName, objectClass.Name, IsInteraction: false,
-            objectClass.AllAttributes.Select(a => (a.Name, a.DataType, a.Semantics)).ToList());
+        return Checked(new GenClass(objectClass.FullName, objectClass.Name, IsInteraction: false,
+            Bindings.SentMembers(objectClass),
+            Bindings.ExcludedMembers(objectClass.AllAttributes.Select(a => a.Name), objectClass.FullName)));
+    }
+
+    /// <summary>
+    /// A class with every member excluded would generate a zero-byte record: <c>recordSize</c> 0,
+    /// and a datagram holding any number of them. Nothing sensible reads that, so it is refused.
+    /// A class that never had members is left alone — HLA allows one, and it was generated before.
+    /// </summary>
+    static GenClass Checked(GenClass cls)
+    {
+        if (cls.Members.Count == 0 && cls.Excluded.Count > 0)
+        {
+            throw new CppGenerationException(
+                $"{cls.FullName} は送る属性・パラメータが1つもありません。「送る属性」で1つ以上残してください。");
+        }
+        return cls;
     }
 
     /// <summary>
@@ -918,6 +938,11 @@ public sealed class CppGenerator
         header.AppendLine($"/// FOM: {cls.FullName}");
         header.AppendLine("///");
         header.AppendLine("/// Members are in the ICD's row order, which is the order they occupy on the wire.");
+        if (cls.Excluded.Count > 0)
+        {
+            header.AppendLine("///");
+            header.AppendLine($"/// ICD で送らないとした{(cls.IsInteraction ? "パラメータ" : "属性")}（メンバに無い）: {string.Join(", ", cls.Excluded)}");
+        }
         header.AppendLine($"struct {name} {{");
         foreach (var (member, memberType, source) in fields)
         {
@@ -949,7 +974,7 @@ public sealed class CppGenerator
         // The generator has already refused a class that does not fit; this keeps that true after
         // any later edit to the ceilings or the payload, at the earliest point a compiler can say so.
         header.AppendLine($"static_assert({name}::kEncodedSize + icd::kHeaderSize <= {name}::kPayload,");
-        header.AppendLine($"              \"{name}: 1件がペイロードに収まりません。ICDgenerator の MTU か配列上限を見直してください\");");
+        header.AppendLine($"              \"{name}: 1件がペイロードに収まりません。ICDgenerator の MTU・配列上限・送る属性を見直してください\");");
         header.AppendLine();
         header.AppendLine($"[[nodiscard]] icd::Result decode(icd::Reader& r, {name}& v);");
         header.AppendLine($"void encode(icd::Writer& w, const {name}& v);");
@@ -1067,7 +1092,8 @@ public sealed class CppGenerator
 
         throw new CppGenerationException(
             $"MTU {Bindings.Mtu}（{_payload.Symbol} = {_payload.Bytes} B、ヘッダを除いて {room} B）に"
-            + "1件も収まらないクラスがあります。MTU を 9000 にするか、配列上限を下げるか、選択から外してください:\n  "
+            + "1件も収まらないクラスがあります。MTU を 9000 にするか、配列上限を下げるか、"
+            + "「送る属性」で要らない属性・パラメータを外すか、選択から外してください:\n  "
             + string.Join("\n  ", over));
     }
 }

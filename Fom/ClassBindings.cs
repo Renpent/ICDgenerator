@@ -4,7 +4,8 @@ using System.Text.Json.Serialization;
 namespace ICDgenerator.Fom;
 
 /// <summary>
-/// The ID / Port / Rate a class is given on the 抽出概要 sheet.
+/// The ID / Port / Rate a class is given on the 抽出概要 sheet, and which of its members it leaves
+/// off the wire.
 ///
 /// None of the three exists in a FOM: HLA has no port concept, update rates are rarely declared,
 /// and nothing in HLA numbers a class. They are decisions someone makes when the gateway is
@@ -32,9 +33,20 @@ public sealed class ClassBinding
     /// <summary>Update rate in Hz. 0 means "on change only".</summary>
     public int? Rate { get; set; }
 
-    public bool IsEmpty => Id is null && Port is null && Rate is null;
+    /// <summary>
+    /// Attributes or parameters left off the wire, by name. Empty means the whole class is sent,
+    /// which is what every class did before this existed.
+    ///
+    /// Held as exclusions rather than inclusions so that an attribute the FOM gains later is sent
+    /// by default instead of vanishing — and if that pushes the class past its payload, generation
+    /// says so. Only whole attributes can go: a record type is shared by every class that uses it,
+    /// so dropping one of its fields for one class would need a second copy of the type.
+    /// </summary>
+    public List<string> Excluded { get; set; } = new();
 
-    public ClassBinding Clone() => new() { Id = Id, Port = Port, Rate = Rate };
+    public bool IsEmpty => Id is null && Port is null && Rate is null && Excluded.Count == 0;
+
+    public ClassBinding Clone() => new() { Id = Id, Port = Port, Rate = Rate, Excluded = new(Excluded) };
 }
 
 /// <summary>
@@ -72,6 +84,69 @@ public sealed class ClassBindings
     }
 
     public int AssignedCount => ByClass.Values.Count(b => b.Id is not null);
+
+    /// <summary>Classes sending fewer than all of their attributes or parameters.</summary>
+    public int TrimmedCount => ByClass.Values.Count(b => b.Excluded.Count > 0);
+
+    public bool IsExcluded(string fullName, string member) =>
+        For(fullName)?.Excluded.Contains(member, StringComparer.Ordinal) ?? false;
+
+    /// <summary>Replaces a class's exclusions, keeping its ID / Port / Rate.</summary>
+    public void SetExcluded(string fullName, IEnumerable<string> members)
+    {
+        var binding = For(fullName)?.Clone() ?? new ClassBinding();
+        binding.Excluded = members.Distinct(StringComparer.Ordinal).ToList();
+        Set(fullName, binding);
+    }
+
+    /// <summary>
+    /// What an object class puts on the wire: its attributes in FOM order, less the excluded ones.
+    ///
+    /// **The one place the exclusions are applied.** The extraction sheets and the generated C++
+    /// both read their member lists from here, so the sheet's size and <c>kEncodedSize</c> cannot
+    /// drift apart — they are two renderings of one layout, and taking the list from two places
+    /// would be exactly how they came to disagree.
+    /// </summary>
+    public List<(string Name, string DataType, string Semantics)> SentMembers(FomObjectClass cls) =>
+        cls.AllAttributes.Where(a => !IsExcluded(cls.FullName, a.Name))
+            .Select(a => (a.Name, a.DataType, a.Semantics)).ToList();
+
+    /// <summary>What an interaction puts on the wire: its parameters less the excluded ones.</summary>
+    public List<(string Name, string DataType, string Semantics)> SentMembers(FomInteractionClass cls) =>
+        cls.AllParameters.Where(p => !IsExcluded(cls.FullName, p.Name))
+            .Select(p => (p.Name, p.DataType, p.Semantics)).ToList();
+
+    /// <summary>
+    /// Exclusions actually in force on a class, in FOM order. A name the FOM no longer declares is
+    /// left out, since there is nothing for it to exclude.
+    /// </summary>
+    public List<string> ExcludedMembers(IEnumerable<string> declared, string fullName) =>
+        declared.Where(name => IsExcluded(fullName, name)).ToList();
+
+    /// <summary>
+    /// Exclusions naming a class or member this FOM does not have — a rename, or a file carried
+    /// over from another FOM. Reported on load rather than dropped, since saving would otherwise
+    /// discard them without anyone noticing.
+    /// </summary>
+    public List<string> StaleExclusions(FomModel model)
+    {
+        var declared = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var cls in model.AllObjectClasses)
+            declared[cls.FullName] = cls.AllAttributes.Select(a => a.Name).ToHashSet(StringComparer.Ordinal);
+        foreach (var cls in model.AllInteractionClasses)
+            declared[cls.FullName] = cls.AllParameters.Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
+
+        var stale = new List<string>();
+        foreach (var (fullName, binding) in ByClass)
+        {
+            foreach (var member in binding.Excluded)
+            {
+                if (!declared.TryGetValue(fullName, out var names) || !names.Contains(member))
+                    stale.Add($"{fullName}.{member}");
+            }
+        }
+        return stale;
+    }
 
     /// <summary>
     /// Ids used by more than one class.

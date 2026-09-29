@@ -99,6 +99,14 @@ namespace ICDgenerator
                     Log($"警告: クラスID {duplicate} が重複しています。ヘッダに他の識別子はないので、"
                         + "受信側は両者を区別できません。");
                 }
+                if (_bindings.TrimmedCount > 0)
+                {
+                    Log($"送る属性           : {_bindings.TrimmedCount} クラスで一部を除外");
+                }
+                foreach (var stale in _bindings.StaleExclusions(model))
+                {
+                    Log($"警告: 除外設定の {stale} はこの FOM にありません（除外は効いていません）。");
+                }
                 Log("");
                 LogStructureDiagnostics(model);
                 foreach (var warning in model.Warnings) Log("警告: " + warning);
@@ -450,6 +458,50 @@ namespace ICDgenerator
             }
         }
 
+        private void btnMembers_Click(object sender, EventArgs e)
+        {
+            if (_model is null)
+            {
+                MessageBox.Show(this, "先にFOMファイルを読み込んでください。", "ICD Generator",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            var selections = CurrentSelections();
+            if (selections.Count == 0)
+            {
+                MessageBox.Show(this, "送る属性を選ぶクラスにチェックを入れてください。", "ICD Generator",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Edited on a copy so cancelling really cancels. The exclusions live in the bindings, so
+            // saving writes the ID / Port / Rate file too — unchanged, since this dialog leaves them be.
+            var working = _bindings.Clone();
+
+            using var dialog = new MemberSelectionForm(_model, new FomTypeResolver(_model), _limits,
+                working, selections);
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+            _bindings = working;
+
+            try
+            {
+                _bindings.Save(_bindingsPath);
+                Log($"送る属性を保存しました: {_bindingsPath}");
+                foreach (var sel in selections)
+                {
+                    var excluded = _bindings.For(sel.FullName)?.Excluded ?? new List<string>();
+                    if (excluded.Count > 0) Log($"    {sel.ShortName}: 除外 {string.Join(", ", excluded)}");
+                }
+            }
+            catch (Exception ex)
+            {
+                // Still in force for this session even if they could not be written.
+                Log("送る属性を保存できませんでした: " + ex.Message);
+            }
+        }
+
         private async void btnGenerateCpp_Click(object sender, EventArgs e)
         {
             if (_model is null)
@@ -546,6 +598,7 @@ namespace ICDgenerator
             btnGenerateCpp.Enabled = !busy;
             btnArrayLimits.Enabled = !busy;
             btnClassBindings.Enabled = !busy;
+            btnMembers.Enabled = !busy;
             txtTypePrefix.Enabled = !busy;
             btnSelectPublishable.Enabled = !busy;
             btnClearSelection.Enabled = !busy;

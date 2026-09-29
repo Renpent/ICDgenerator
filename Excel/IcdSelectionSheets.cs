@@ -52,8 +52,8 @@ public static partial class IcdExporter
             // Row of this class on the index, counting its header row.
             int indexRow = i + 2;
 
-            rows.Add(WriteDetailSheet(detail, model, resolver, flattener, selections[i], enumUsage,
-                index.Name, indexRow) with
+            rows.Add(WriteDetailSheet(detail, model, resolver, flattener, bindings, selections[i],
+                enumUsage, index.Name, indexRow) with
             {
                 SheetName = detail.Name
             });
@@ -82,15 +82,35 @@ public static partial class IcdExporter
     /// <param name="indexSheet">Sheet holding this class's ID / Port / Rate.</param>
     /// <param name="indexRow">Row it occupies there.</param>
     static IndexRow WriteDetailSheet(XlsxSheet sheet, FomModel model, FomTypeResolver resolver,
-        FomFlattener flattener, IcdSelection selection,
+        FomFlattener flattener, ClassBindings bindings, IcdSelection selection,
         IDictionary<string, SortedSet<string>> enumUsage, string indexSheet, int indexRow)
     {
+        var interaction = selection.IsInteraction
+            ? model.AllInteractionClasses.First(c => c.FullName == selection.FullName)
+            : null;
+        var objectClass = interaction is null
+            ? model.AllObjectClasses.First(c => c.FullName == selection.FullName)
+            : null;
+
+        // Excluded members are dropped here and nowhere else in this file, so the rows, the sum and
+        // the enumerations below all describe what is actually sent.
+        var members = interaction is not null
+            ? bindings.SentMembers(interaction)
+            : bindings.SentMembers(objectClass!);
+        var excluded = bindings.ExcludedMembers(interaction is not null
+            ? interaction.AllParameters.Select(p => p.Name)
+            : objectClass!.AllAttributes.Select(a => a.Name), selection.FullName);
+
         // ID / Port / Rate are entered by hand on 抽出概要, so this sheet points at them rather than
         // holding a second copy: filling one in there shows up here, and the two cannot disagree.
         sheet.AddRow("ID", XlsxRef.ToCell(indexSheet, "B", indexRow));
         sheet.AddRow("Port", XlsxRef.ToCell(indexSheet, "C", indexRow));
         sheet.AddRow("Rate", XlsxRef.ToCell(indexSheet, "D", indexRow));
-        sheet.AddRow();
+
+        // Someone holding the FOM beside this sheet would otherwise take a missing attribute for a
+        // mistake. The row the header needs on row 5 is the one that was blank, so it costs nothing.
+        if (excluded.Count > 0) sheet.AddRow("除外", string.Join("、", excluded));
+        else sheet.AddRow();
 
         // Only what the reader needs to lay bytes out. Transportation, 信頼配送 and Order describe
         // how a member is delivered rather than what it looks like on the wire, and the class-wide
@@ -99,17 +119,6 @@ public static partial class IcdExporter
         // that wants them back only has to render them.
         sheet.AddHeader("Name", "Type", "Size(Bytes)", "Amount", "繰り返し", "領域(Bytes)",
                         "長さ決定", "Units", "Description");
-
-        var interaction = selection.IsInteraction
-            ? model.AllInteractionClasses.First(c => c.FullName == selection.FullName)
-            : null;
-        var objectClass = interaction is null
-            ? model.AllObjectClasses.First(c => c.FullName == selection.FullName)
-            : null;
-
-        var members = interaction is not null
-            ? interaction.AllParameters.Select(p => (p.Name, p.DataType, p.Semantics))
-            : objectClass!.AllAttributes.Select(a => (a.Name, a.DataType, a.Semantics));
 
         // Every record is a fixed-size box, so this sum is the record's size rather than a worst
         // case: each row's 領域(Bytes) is the space it always occupies, ceilings folded in. Variant

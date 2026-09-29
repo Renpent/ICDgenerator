@@ -124,6 +124,31 @@ public sealed class FomFlattener
         _limits = limits ?? new ArrayLimits();
     }
 
+    /// <summary>
+    /// The space one member's rows occupy on the wire, by the same rule the detail sheet sums
+    /// them with: unconditional rows add up, and variant alternatives count only their largest
+    /// group, the box holding whichever one is present. Null when any row has no fixed size.
+    /// </summary>
+    public static long? WireBytes(IEnumerable<FlatField> fields)
+    {
+        long total = 0;
+        var alternatives = new Dictionary<string, long>(StringComparer.Ordinal);
+        foreach (var field in fields)
+        {
+            if (field.MaxBytes is not long max) return null;
+            if (field.Selector.Length == 0)
+            {
+                total += max;
+            }
+            else
+            {
+                var branch = field.Selector.Split(" / ")[0];
+                alternatives[branch] = alternatives.GetValueOrDefault(branch) + max;
+            }
+        }
+        return alternatives.Count > 0 ? total + alternatives.Values.Max() : total;
+    }
+
     public List<FlatField> Flatten(string name, string dataType, string semantics)
     {
         var rows = new List<FlatField>();
